@@ -25,6 +25,7 @@
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
+        android:name=".GeoStampApp"
         android:allowBackup="true"
         android:largeHeap="true"
         android:requestLegacyExternalStorage="true"

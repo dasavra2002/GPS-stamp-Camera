@@ -61,6 +61,11 @@ private enum class Screen { CAMERA, SETTINGS, GALLERY }
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (CrashReporter.showIfCrashed(this) { showApp() }) return
+        showApp()
+    }
+
+    private fun showApp() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Accent, secondary = Accent)) {
                 Box(
