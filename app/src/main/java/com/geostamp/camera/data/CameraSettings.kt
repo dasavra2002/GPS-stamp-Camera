@@ -92,6 +92,12 @@ enum class SnapshotMode(override val label: String) : Labeled {
     LIVE_MOMENTS("Live Moments"),
 }
 
+enum class SlowMoSpeed(override val label: String, val targetFps: Int) : Labeled {
+    X2("2× (60fps)", 60),
+    X4("4× (120fps)", 120),
+    X8("8× (240fps)", 240);
+}
+
 /** Pro camera options, remembered between launches. */
 class CameraSettings(context: Context) {
     private val prefs = context.getSharedPreferences("camera_settings", Context.MODE_PRIVATE)
@@ -116,6 +122,7 @@ class CameraSettings(context: Context) {
     var videoRes by enumPref("video_res", VideoRes.FHD, VideoRes.entries)
     var videoAspect by enumPref("video_aspect", VideoAspect.R16_9, VideoAspect.entries)
     var fps by intPref("fps", 30)
+    var slowMoSpeed by enumPref("slow_mo_speed", SlowMoSpeed.X2, SlowMoSpeed.entries)
     var bitrate by enumPref("bitrate", Bitrate.AUTO, Bitrate.entries)
     var videoColor by enumPref("video_color", VideoColor.SDR, VideoColor.entries)
     var videoCodec by enumPref("video_codec", VideoCodec.H264, VideoCodec.entries)

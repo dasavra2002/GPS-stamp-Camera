@@ -91,7 +91,7 @@ fun InfoBar(
     val shutterNs = manual.shutterNs ?: readout.exposureNs
     val shutterText = when {
         shutterNs == null -> "--"
-        mode == CaptureMode.VIDEO -> Manual.angleLabel((Manual.nsToAngle(shutterNs, fps) * 10).roundToInt() / 10f)
+        mode.isVideo -> Manual.angleLabel((Manual.nsToAngle(shutterNs, fps) * 10).roundToInt() / 10f)
         else -> Manual.shutterLabel(shutterNs)
     }
     val iso = manual.iso ?: readout.iso
@@ -139,8 +139,8 @@ fun InfoBar(
                     )
                 }
             }
-            if (mode == CaptureMode.VIDEO) seg("FPS", "$fps", true, Panel.FPS)
-            seg(if (mode == CaptureMode.VIDEO) "SHUTTER" else "SPEED", shutterText, manual.shutterNs != null, Panel.SHUTTER)
+            if (mode.isVideo) seg("FPS", "$fps", true, Panel.FPS)
+            seg(if (mode.isVideo) "SHUTTER" else "SPEED", shutterText, manual.shutterNs != null, Panel.SHUTTER)
             seg("ISO", iso?.toString() ?: "--", manual.iso != null, Panel.ISO)
             if (!manual.exposureManual) seg("EV", String.format(Locale.US, "%+d", manual.ev), manual.ev != 0, Panel.EV)
             seg("WB", wbText, manual.wb != WbMode.AUTO, Panel.WB)
@@ -259,7 +259,7 @@ fun ControlPanel(
             Panel.SHUTTER -> {
                 if (!sensor.manualSensor) {
                     PanelLabel("Manual shutter isn't supported on this lens")
-                } else if (mode == CaptureMode.VIDEO) {
+                } else if (mode.isVideo) {
                     PanelLabel("SHUTTER ANGLE  (180° = natural motion blur)")
                     ChipRow {
                         ProChip("AUTO", manual.shutterNs == null) { manual.shutterNs = null }
@@ -345,7 +345,7 @@ fun ControlPanel(
                 }
             }
 
-            Panel.FORMAT -> if (mode == CaptureMode.PHOTO) {
+            Panel.FORMAT -> if (!mode.isVideo) {
                 PanelLabel("FORMAT")
                 ChipRow {
                     PhotoFormat.entries.forEach { f ->

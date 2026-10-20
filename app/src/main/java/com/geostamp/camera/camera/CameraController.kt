@@ -113,7 +113,11 @@ data class LensCaps(
     val anyExtension get() = hdrExtension || nightExtension || bokehExtension || faceRetouchExtension
 }
 
-enum class CaptureMode { PHOTO, VIDEO, TIMELAPSE }
+enum class CaptureMode {
+    PHOTO, VIDEO, TIMELAPSE, SLOW_MO;
+
+    val isVideo get() = this == VIDEO || this == SLOW_MO
+}
 
 data class PhotoSpec(
     val hdr: Boolean,
@@ -666,8 +670,8 @@ class CameraController(private val context: Context) {
     }
 
     /** Binds the lens for video, burning the stamp into every frame. */
-    fun bindVideo(owner: LifecycleOwner, lens: LensInfo, spec: VideoSpec): BindResult {
-        val p = provider ?: return BindResult(false, CaptureMode.VIDEO)
+    fun bindVideo(owner: LifecycleOwner, lens: LensInfo, spec: VideoSpec, targetMode: CaptureMode = CaptureMode.VIDEO): BindResult {
+        val p = provider ?: return BindResult(false, targetMode)
         sensorInfo = readSensorInfo(lens)
         val caps = capabilities(lens)
         val notices = mutableListOf<String>()
@@ -753,7 +757,7 @@ class CameraController(private val context: Context) {
 
         val hdrLabel = if (color != VideoColor.SDR) color.label.substringBefore(" 10") else null
         fun result(c: VideoColor, stamp: Boolean, extra: String? = null) = BindResult(
-            true, CaptureMode.VIDEO,
+            true, targetMode,
             hdrLabel = if (c != VideoColor.SDR) c.label.substringBefore(" 10") else null,
             stampOnVideo = stamp, color = c, nativeRatio = nativeRatio,
             notice = (notices + listOfNotNull(extra)).joinToString(". ").ifBlank { null },
@@ -770,7 +774,7 @@ class CameraController(private val context: Context) {
         if (hdrLabel != null && attempt(VideoColor.SDR, false, false)) {
             return result(VideoColor.SDR, false, "Video started in basic mode (no stamp, SDR)")
         }
-        return BindResult(false, CaptureMode.VIDEO, notice = "Couldn't start video on ${lens.shortLabel}")
+        return BindResult(false, targetMode, notice = "Couldn't start video on ${lens.shortLabel}")
     }
 
     private fun parseSize(s: String): Size? {
