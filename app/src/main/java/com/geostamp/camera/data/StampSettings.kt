@@ -218,7 +218,11 @@ class StampSettings(private val context: Context) {
     private val siteState = stringState("site_name", "")
     var siteName: String
         get() = siteState.value
-        set(v) { siteState.value = v; prefs.edit().putString("site_name", v).apply() }
+        set(v) {
+            siteState.value = v
+            prefs.edit().putString("site_name", v).apply()
+            runCatching { com.geostamp.camera.widget.GeoStampAppWidgetProvider.updateAllWidgets(context) }
+        }
 
     private val custom1LabelState = stringState("custom1_label", "Engineer")
     var custom1Label: String

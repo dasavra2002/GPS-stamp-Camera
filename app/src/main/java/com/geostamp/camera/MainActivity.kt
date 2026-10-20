@@ -71,11 +71,27 @@ private enum class Screen { CAMERA, SETTINGS, GALLERY }
 
 class MainActivity : ComponentActivity() {
     private val volumeKeyTrigger = kotlinx.coroutines.flow.MutableSharedFlow<VolumeKeyEvent>(extraBufferCapacity = 1)
+    private val currentIntent = mutableStateOf<Intent?>(null)
+
+    companion object {
+        const val ACTION_OPEN_CAMERA = "com.geostamp.camera.ACTION_OPEN_CAMERA"
+        const val ACTION_PUNCH_IN = "com.geostamp.camera.ACTION_PUNCH_IN"
+        const val ACTION_OPEN_GALLERY = "com.geostamp.camera.ACTION_OPEN_GALLERY"
+        const val EXTRA_START_SCREEN = "extra_start_screen"
+        const val EXTRA_START_MODE = "extra_start_mode"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        currentIntent.value = intent
         if (CrashReporter.showIfCrashed(this) { showApp() }) return
         showApp()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        currentIntent.value = intent
     }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
@@ -103,7 +119,7 @@ class MainActivity : ComponentActivity() {
                         .safeDrawingPadding(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    App(volumeKeyTrigger = volumeKeyTrigger)
+                    App(volumeKeyTrigger = volumeKeyTrigger, currentIntent = currentIntent)
                 }
             }
         }
@@ -121,7 +137,10 @@ private fun startupPermissions(): Array<String> {
 }
 
 @Composable
-private fun App(volumeKeyTrigger: kotlinx.coroutines.flow.SharedFlow<VolumeKeyEvent>? = null) {
+private fun App(
+    volumeKeyTrigger: kotlinx.coroutines.flow.SharedFlow<VolumeKeyEvent>? = null,
+    currentIntent: androidx.compose.runtime.State<Intent?>? = null,
+) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -137,6 +156,22 @@ private fun App(volumeKeyTrigger: kotlinx.coroutines.flow.SharedFlow<VolumeKeyEv
     var cameraGranted by remember { mutableStateOf(granted(Manifest.permission.CAMERA)) }
     var asked by remember { mutableStateOf(false) }
     var screen by remember { mutableStateOf(Screen.CAMERA) }
+
+    // React to incoming widget intents or launcher actions
+    LaunchedEffect(currentIntent?.value) {
+        val it = currentIntent?.value ?: return@LaunchedEffect
+        val action = it.action
+        val startScreen = it.getStringExtra(MainActivity.EXTRA_START_SCREEN)
+        val startMode = it.getStringExtra(MainActivity.EXTRA_START_MODE)
+        if (action == MainActivity.ACTION_PUNCH_IN || startMode == "ATTENDANCE") {
+            screen = Screen.CAMERA
+            cameraSettings.attendanceMode = true
+        } else if (action == MainActivity.ACTION_OPEN_GALLERY || startScreen == "GALLERY") {
+            screen = Screen.GALLERY
+        } else if (action == MainActivity.ACTION_OPEN_CAMERA) {
+            screen = Screen.CAMERA
+        }
+    }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         cameraGranted = granted(Manifest.permission.CAMERA)
@@ -156,8 +191,12 @@ private fun App(volumeKeyTrigger: kotlinx.coroutines.flow.SharedFlow<VolumeKeyEv
                 Lifecycle.Event.ON_RESUME -> {
                     cameraGranted = granted(Manifest.permission.CAMERA)
                     repo.start()
+                    com.geostamp.camera.widget.GeoStampAppWidgetProvider.updateAllWidgets(context)
                 }
-                Lifecycle.Event.ON_PAUSE -> repo.stop()
+                Lifecycle.Event.ON_PAUSE -> {
+                    repo.stop()
+                    com.geostamp.camera.widget.GeoStampAppWidgetProvider.updateAllWidgets(context)
+                }
                 else -> Unit
             }
         }

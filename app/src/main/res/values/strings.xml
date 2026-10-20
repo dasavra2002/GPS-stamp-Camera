@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">GeoStamp Camera</string>
+    <string name="widget_description">Quick 1-tap capture, Punch-In attendance, and site verification</string>
 </resources>
