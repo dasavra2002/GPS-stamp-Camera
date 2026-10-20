@@ -59,10 +59,20 @@ import com.geostamp.camera.ui.SettingsScreen
 private enum class Screen { CAMERA, SETTINGS, GALLERY }
 
 class MainActivity : ComponentActivity() {
+    private val shutterTrigger = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (CrashReporter.showIfCrashed(this) { showApp() }) return
         showApp()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) {
+            shutterTrigger.tryEmit(Unit)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun showApp() {
@@ -73,7 +83,7 @@ class MainActivity : ComponentActivity() {
                         .fillMaxSize()
                         .background(Color.Black)
                         .safeDrawingPadding(),
-                ) { App() }
+                ) { App(shutterTrigger = shutterTrigger) }
             }
         }
     }
@@ -90,7 +100,7 @@ private fun startupPermissions(): Array<String> {
 }
 
 @Composable
-private fun App() {
+private fun App(shutterTrigger: kotlinx.coroutines.flow.SharedFlow<Unit>? = null) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -161,10 +171,11 @@ private fun App() {
             cam = cameraSettings,
             repo = repo,
             controller = controller,
+            shutterTrigger = shutterTrigger,
             onOpenSettings = { screen = Screen.SETTINGS },
             onOpenGallery = { screen = Screen.GALLERY },
         )
-        Screen.SETTINGS -> SettingsScreen(settings, repo, onBack = { screen = Screen.CAMERA })
+        Screen.SETTINGS -> SettingsScreen(settings, repo, cameraSettings, onBack = { screen = Screen.CAMERA })
         Screen.GALLERY -> GalleryScreen(galleryState, settings, repo, onBack = { screen = Screen.CAMERA })
     }
 }

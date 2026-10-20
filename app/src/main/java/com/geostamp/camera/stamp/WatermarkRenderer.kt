@@ -14,6 +14,7 @@ import com.geostamp.camera.data.StampBackground
 import com.geostamp.camera.data.StampConfig
 import com.geostamp.camera.data.StampData
 import com.geostamp.camera.data.StampField
+import com.geostamp.camera.data.StampLanguage
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -26,6 +27,68 @@ import kotlin.math.roundToInt
  * The same renderer is used for the live preview, camera photos and gallery photos,
  * so what you see on screen is what gets saved.
  */
+object StampLocalizer {
+    fun siteLabel(lang: StampLanguage): String = when (lang) {
+        StampLanguage.HINDI -> "साइट: "
+        StampLanguage.BENGALI -> "সাইট: "
+        StampLanguage.MARATHI -> "साइट: "
+        StampLanguage.GUJARATI -> "સાઇટ: "
+        StampLanguage.TAMIL -> "தளம்: "
+        StampLanguage.TELUGU -> "సైట్: "
+        else -> "Site: "
+    }
+
+    fun plusCodeLabel(lang: StampLanguage): String = when (lang) {
+        StampLanguage.HINDI -> "प्लस कोड: "
+        StampLanguage.BENGALI -> "প্লাস কোড: "
+        StampLanguage.MARATHI -> "प्लस कोड: "
+        StampLanguage.GUJARATI -> "પ્લસ કોડ: "
+        StampLanguage.TAMIL -> "பிளஸ் குறியீடு: "
+        StampLanguage.TELUGU -> "ప్లస్ కోడ్: "
+        else -> "Plus Code : "
+    }
+
+    fun personLabel(lang: StampLanguage): String = when (lang) {
+        StampLanguage.HINDI -> "व्यक्ति: "
+        StampLanguage.BENGALI -> "ব্যক্তি: "
+        StampLanguage.MARATHI -> "व्यक्ती: "
+        StampLanguage.GUJARATI -> "વ્યક્તિ: "
+        StampLanguage.TAMIL -> "நபர்: "
+        StampLanguage.TELUGU -> "వ్యక్తి: "
+        else -> "Person Name : "
+    }
+
+    fun altitudeLabel(lang: StampLanguage): String = when (lang) {
+        StampLanguage.HINDI -> "ऊंचाई "
+        StampLanguage.BENGALI -> "উচ্চতা "
+        StampLanguage.MARATHI -> "उंची "
+        StampLanguage.GUJARATI -> "ઊંચાઈ "
+        StampLanguage.TAMIL -> "உயரம் "
+        StampLanguage.TELUGU -> "ఎత్తు "
+        else -> "Altitude "
+    }
+
+    fun accuracyLabel(lang: StampLanguage): String = when (lang) {
+        StampLanguage.HINDI -> "सटीकता "
+        StampLanguage.BENGALI -> "নির্ভুলতা "
+        StampLanguage.MARATHI -> "अचूकता "
+        StampLanguage.GUJARATI -> "ચોકસાઈ "
+        StampLanguage.TAMIL -> "துல்லியம் "
+        StampLanguage.TELUGU -> "ఖచ్చితత్వం "
+        else -> "Accuracy "
+    }
+
+    fun cameraLabel(lang: StampLanguage): String = when (lang) {
+        StampLanguage.HINDI -> "कैमरा: "
+        StampLanguage.BENGALI -> "ক্যামেরা: "
+        StampLanguage.MARATHI -> "कॅमेरा: "
+        StampLanguage.GUJARATI -> "કેમેરા: "
+        StampLanguage.TAMIL -> "கேமரா: "
+        StampLanguage.TELUGU -> "కెమెరా: "
+        else -> "Camera : "
+    }
+}
+
 object WatermarkRenderer {
 
     private const val LABEL_AMBER = 0xFFFFC107.toInt()
@@ -70,26 +133,29 @@ object WatermarkRenderer {
         if (config.has(StampField.ADDRESS)) lines += Line("", d.address ?: "-")
         if (config.has(StampField.LAT_LONG)) {
             val v = if (d.latitude != null && d.longitude != null) {
-                String.format(Locale.US, "Lat %.6f° Long %.6f°", d.latitude, d.longitude)
+                com.geostamp.camera.data.CoordinateConverter.format(d.latitude, d.longitude, config.coordinateFormat)
             } else "Lat - Long -"
             lines += Line("", v)
         }
         val altAcc = mutableListOf<String>()
         if (config.has(StampField.ALTITUDE)) {
-            altAcc += "Altitude " + (d.altitude?.let { String.format(Locale.US, "%.0f m", it) } ?: "-")
+            altAcc += StampLocalizer.altitudeLabel(config.language) + (d.altitude?.let { String.format(Locale.US, "%.0f m", it) } ?: "-")
         }
         if (config.has(StampField.ACCURACY)) {
-            altAcc += "Accuracy " + (d.accuracyM?.let { String.format(Locale.US, "±%.0f m", it) } ?: "-")
+            altAcc += StampLocalizer.accuracyLabel(config.language) + (d.accuracyM?.let { String.format(Locale.US, "±%.0f m", it) } ?: "-")
         }
         if (altAcc.isNotEmpty()) lines += Line("", altAcc.joinToString("   "))
-        if (config.has(StampField.PLUS_CODE)) lines += Line("Plus Code : ", d.plusCode ?: "-")
+        if (config.has(StampField.PLUS_CODE)) lines += Line(StampLocalizer.plusCodeLabel(config.language), d.plusCode ?: "-")
         val date = formatDate(config, time)
         if (date.isNotEmpty()) lines += Line("", date)
+        if (config.has(StampField.PROJECT) && config.siteName.isNotBlank()) lines += Line(StampLocalizer.siteLabel(config.language), config.siteName)
         if (config.has(StampField.NOTE) && config.note.isNotBlank()) lines += Line("", config.note)
         if (config.has(StampField.NUMBERING)) lines += Line("", config.number.toString())
-        if (config.has(StampField.PERSON_NAME)) lines += Line("Person Name : ", config.personName.ifBlank { "-" })
+        if (config.has(StampField.PERSON_NAME)) lines += Line(StampLocalizer.personLabel(config.language), config.personName.ifBlank { "-" })
         if (config.has(StampField.PHONE)) lines += Line("☎ ", config.phone.ifBlank { "-" })
-        if (config.has(StampField.CAMERA_INFO) && !cameraLabel.isNullOrBlank()) lines += Line("Camera : ", cameraLabel)
+        if (config.has(StampField.CAMERA_INFO) && !cameraLabel.isNullOrBlank()) lines += Line(StampLocalizer.cameraLabel(config.language), cameraLabel)
+        if (config.has(StampField.CUSTOM_1) && config.custom1Label.isNotBlank()) lines += Line("${config.custom1Label}: ", config.custom1Value.ifBlank { "-" })
+        if (config.has(StampField.CUSTOM_2) && config.custom2Label.isNotBlank()) lines += Line("${config.custom2Label}: ", config.custom2Value.ifBlank { "-" })
         return lines
     }
 
@@ -104,6 +170,14 @@ object WatermarkRenderer {
         if (config.has(StampField.HUMIDITY)) chips += "💧 " + (d.humidity?.let { "$it%" } ?: "-")
         if (config.has(StampField.PRESSURE)) {
             chips += "⏲ " + (d.pressureHpa?.let { String.format(Locale.US, "%.0f hpa", it) } ?: "-")
+        }
+        if (config.has(StampField.AQI)) {
+            chips += "🍃 AQI " + (d.aqi?.toString() ?: "-")
+        }
+        if (config.has(StampField.SUN_TIMES)) {
+            val sr = d.sunrise ?: "-"
+            val ss = d.sunset ?: "-"
+            chips += "🌅 $sr  🌇 $ss"
         }
         if (config.has(StampField.COMPASS)) {
             chips += "🧭 " + (d.azimuthDeg?.let { String.format(Locale.US, "%.0f° %s", it, direction(it)) } ?: "-")
@@ -158,7 +232,8 @@ object WatermarkRenderer {
         val chips = buildChips(config, data)
         val showMap = config.has(StampField.MAP)
         val logo = if (config.has(StampField.LOGO)) config.logo else null
-        if (lines.isEmpty() && chips.isEmpty() && !showMap && logo == null) return null
+        val showQr = config.has(StampField.QR_CODE)
+        if (lines.isEmpty() && chips.isEmpty() && !showMap && logo == null && !showQr) return null
 
         val w = widthPx.toFloat()
         val u = w / 100f
@@ -168,6 +243,14 @@ object WatermarkRenderer {
         val panelLeftOffset = if (showMap) mapSize + gap else 0f
         val panelWidth = w - panelLeftOffset
         val logoSize = if (logo != null) 7.5f * u else 0f
+        val qrSize = if (showQr) 8.5f * u else 0f
+
+        val qrBmp = if (showQr) {
+            val payload = TamperProofSigner.buildPayload(
+                data.latitude, data.longitude, data.altitude, time, data.plusCode, config.number,
+            )
+            TamperProofSigner.generateQrBitmap(payload, (qrSize * 2).toInt().coerceAtLeast(64))
+        } else null
 
         // Colours
         val lightBg = config.background == StampBackground.LIGHT
@@ -189,7 +272,8 @@ object WatermarkRenderer {
         }
 
         // ---- measure text ----
-        val textMaxWidth = panelWidth - 2 * pad - (if (logo != null) logoSize + gap else 0f)
+        val sideWidgetsWidth = (if (logo != null) logoSize + gap else 0f) + (if (qrBmp != null) qrSize + gap else 0f)
+        val textMaxWidth = panelWidth - 2 * pad - sideWidgetsWidth
         data class Row(val label: String, val text: String, val paint: Paint, val height: Float)
         val rows = mutableListOf<Row>()
         for (line in lines) {
@@ -218,8 +302,8 @@ object WatermarkRenderer {
         val chipRowH = chipPaint.textSize * 1.6f
         val textHeight = rows.sumOf { it.height.toDouble() }.toFloat()
         val chipsHeight = chipRows.size * chipRowH + (if (chipRows.isNotEmpty() && rows.isNotEmpty()) 0.8f * u else 0f)
-        val panelContent = max(textHeight + chipsHeight, logoSize)
-        val hasPanel = rows.isNotEmpty() || chipRows.isNotEmpty() || logo != null
+        val panelContent = maxOf(textHeight + chipsHeight, logoSize, if (qrBmp != null) qrSize else 0f)
+        val hasPanel = rows.isNotEmpty() || chipRows.isNotEmpty() || logo != null || qrBmp != null
         val panelHeight = if (hasPanel) panelContent + 2 * pad else 0f
         val totalH = ceil(max(panelHeight, mapSize)).toInt().coerceAtLeast(1)
 
@@ -235,7 +319,10 @@ object WatermarkRenderer {
         // ---- map ----
         if (showMap) drawMap(canvas, RectF(mapLeft, mapTop, mapLeft + mapSize, mapTop + mapSize), data, u, preview)
 
-        if (!hasPanel) return bmp
+        if (!hasPanel) {
+            qrBmp?.recycle()
+            return bmp
+        }
 
         // ---- panel ----
         val panelRect = RectF(panelLeft, panelTop, panelLeft + panelWidth, totalH.toFloat())
@@ -244,14 +331,25 @@ object WatermarkRenderer {
             canvas.drawRoundRect(panelRect, 1.6f * u, 1.6f * u, bg)
         }
 
+        var currentRightOffset = pad
         if (logo != null) {
-            val l = panelRect.right - pad - logoSize
+            val l = panelRect.right - currentRightOffset - logoSize
             val t = panelRect.top + pad
             val scale = minOf(logoSize / logo.width, logoSize / logo.height)
             val lw = logo.width * scale
             val lh = logo.height * scale
             val dst = RectF(l + (logoSize - lw) / 2, t + (logoSize - lh) / 2, l + (logoSize + lw) / 2, t + (logoSize + lh) / 2)
             canvas.drawBitmap(logo, null, dst, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            currentRightOffset += logoSize + gap
+        }
+
+        if (qrBmp != null) {
+            val l = panelRect.right - currentRightOffset - qrSize
+            val t = panelRect.top + pad
+            val qrCard = RectF(l - 0.3f * u, t - 0.3f * u, l + qrSize + 0.3f * u, t + qrSize + 0.3f * u)
+            canvas.drawRoundRect(qrCard, 0.6f * u, 0.6f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+            canvas.drawBitmap(qrBmp, null, RectF(l, t, l + qrSize, t + qrSize), Paint(Paint.FILTER_BITMAP_FLAG))
+            qrBmp.recycle()
         }
 
         var y = panelRect.top + pad

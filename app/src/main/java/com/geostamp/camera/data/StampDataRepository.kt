@@ -209,7 +209,15 @@ class StampDataRepository(
                 return@launch
             }
             _data.update {
-                it.copy(temperatureC = w.temperatureC, humidity = w.humidity, windKmh = w.windKmh, pressureHpa = w.pressureHpa)
+                it.copy(
+                    temperatureC = w.temperatureC,
+                    humidity = w.humidity,
+                    windKmh = w.windKmh,
+                    pressureHpa = w.pressureHpa,
+                    aqi = w.aqi,
+                    sunrise = w.sunrise,
+                    sunset = w.sunset,
+                )
             }
         }
     }
@@ -219,7 +227,7 @@ class StampDataRepository(
         val type = mapType
         mapJob?.cancel()
         mapJob = scope.launch(Dispatchers.IO) {
-            val bmp = MapTileFetcher.fetch(loc.latitude, loc.longitude, type)
+            val bmp = MapTileFetcher.fetch(loc.latitude, loc.longitude, type, context = context)
             if (bmp == null) {
                 lastMapLoc = null
                 return@launch

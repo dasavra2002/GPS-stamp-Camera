@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,9 +33,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.LocationOff
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -70,6 +77,7 @@ import androidx.core.content.ContextCompat
 import com.geostamp.camera.data.StampData
 import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampSettings
+import com.geostamp.camera.report.ReportGenerator
 import com.geostamp.camera.stamp.GalleryStamper
 import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.PhotoMeta
@@ -97,6 +105,8 @@ enum class ItemStatus(val text: String) {
     SAVED("Saved to Pictures/GeoStamp"),
     FAILED("Failed"),
 }
+
+private enum class GalleryViewMode { LIST, MAP }
 
 /** One gallery photo being stamped. Its [data] and [time] can be edited by the user. */
 class GalleryItem(val uri: Uri, val name: String, val thumb: Bitmap?, val meta: PhotoMeta) {
@@ -138,6 +148,49 @@ fun GalleryScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var viewMode by remember { mutableStateOf(GalleryViewMode.LIST) }
+
+    fun shareItemWhatsApp(item: GalleryItem) {
+        val uri = item.savedUri ?: item.uri
+        val text = buildString {
+            append("📍 GeoStamp Photo\n")
+            item.data.title?.let { append("🏢 $it\n") }
+            if (item.data.latitude != null && item.data.longitude != null) {
+                append("🗺 GPS: ${item.data.latitude}, ${item.data.longitude}\n")
+            }
+            item.data.plusCode?.let { append("🌐 Plus Code: $it\n") }
+            append("⏰ Time: ${item.time.format(DateTimeFormatter.ofPattern("dd/MM/yyyy hh:mm a"))}\n")
+            if (settings.note.isNotBlank()) append("📝 Note: ${settings.note}\n")
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/jpeg"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TEXT, text)
+            setPackage("com.whatsapp")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            val fallback = Intent(Intent.ACTION_SEND).apply {
+                type = "image/jpeg"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, text)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(fallback, "Share via"))
+        }
+    }
+
+    fun openInGoogleMaps(lat: Double, lon: Double, label: String) {
+        val geo = Uri.parse("geo:$lat,$lon?q=$lat,$lon(${Uri.encode(label)})")
+        val intent = Intent(Intent.ACTION_VIEW, geo)
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=$lat,$lon")))
+        }
+    }
 
     state.editing?.let { item ->
         EditDetailsScreen(
@@ -207,7 +260,10 @@ fun GalleryScreen(
                 val bmp = PhotoComposer.decodeUri(context, item.uri)
                 val stamped = PhotoComposer.compose(bmp, cfg, item.data, item.time, item.meta.camera)
                 val base = item.name.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
-                PhotoSaver.save(context, stamped, item.data, item.time, prefix = "Stamped_$base").also { stamped.recycle() }
+                PhotoSaver.save(context, stamped, item.data, item.time, prefix = "Stamped_$base", subFolder = cfg.siteName.ifBlank { null }).also {
+                    stamped.recycle()
+                    if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()
+                }
             } catch (e: Throwable) {
                 null
             }
@@ -276,6 +332,149 @@ fun GalleryScreen(
                 Text("Use my current location for photos without GPS", color = Accent)
             }
         }
+
+        if (state.items.isNotEmpty()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        state.scope.launch {
+                            Toast.makeText(context, "Generating inspection PDF report…", Toast.LENGTH_SHORT).show()
+                            val uri = ReportGenerator.generatePdfReport(
+                                context, state.items,
+                                projectName = settings.siteName.ifBlank { settings.note.ifBlank { "Site Visit" } },
+                                inspectorName = settings.personName,
+                            )
+                            if (uri != null) {
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/pdf"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Share Inspection PDF"))
+                            } else {
+                                Toast.makeText(context, "Could not generate PDF", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                ) { Text("📄 PDF Report", color = Color.White) }
+
+                OutlinedButton(
+                    onClick = {
+                        state.scope.launch {
+                            val uri = ReportGenerator.generateCsvSummary(context, state.items)
+                            if (uri != null) {
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/csv"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Share CSV Summary"))
+                            } else {
+                                Toast.makeText(context, "Could not generate CSV", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                ) { Text("📊 CSV Export", color = Color.White) }
+
+                OutlinedButton(
+                    onClick = {
+                        state.scope.launch {
+                            val uri = ReportGenerator.generateKmlExport(context, state.items, docName = settings.note.ifBlank { "GeoStamp Map" })
+                            if (uri != null) {
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/vnd.google-earth.kml+xml"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Open in Google Earth / Share KML"))
+                            } else {
+                                Toast.makeText(context, "No photos with GPS to map", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                ) { Text("🌍 Google Earth (KML)", color = Color.White) }
+
+                OutlinedButton(
+                    onClick = {
+                        val savedUris = state.items.mapNotNull { it.savedUri ?: it.uri }
+                        if (savedUris.isEmpty()) {
+                            Toast.makeText(context, "No photos to upload", Toast.LENGTH_SHORT).show()
+                        } else if (savedUris.size == 1) {
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "image/jpeg"
+                                putExtra(Intent.EXTRA_STREAM, savedUris.first())
+                                setPackage("com.google.android.apps.docs")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            try {
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
+                                val fallback = Intent(Intent.ACTION_SEND).apply {
+                                    type = "image/jpeg"
+                                    putExtra(Intent.EXTRA_STREAM, savedUris.first())
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(fallback, "Upload to Google Drive / Cloud"))
+                            }
+                        } else {
+                            val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                                type = "image/jpeg"
+                                putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(savedUris))
+                                setPackage("com.google.android.apps.docs")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            try {
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
+                                val fallback = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                                    type = "image/jpeg"
+                                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(savedUris))
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(fallback, "Upload photos to Cloud / Drive"))
+                            }
+                        }
+                    },
+                ) { Text("☁️ Drive Backup", color = Color.White) }
+            }
+        }
+
+        if (state.items.isNotEmpty()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = { viewMode = GalleryViewMode.LIST },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (viewMode == GalleryViewMode.LIST) Accent else Color(0x33FFFFFF),
+                        contentColor = if (viewMode == GalleryViewMode.LIST) Color.Black else Color.White,
+                    ),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("📋 List (${state.items.size})")
+                }
+                Button(
+                    onClick = { viewMode = GalleryViewMode.MAP },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (viewMode == GalleryViewMode.MAP) Accent else Color(0x33FFFFFF),
+                        contentColor = if (viewMode == GalleryViewMode.MAP) Color.Black else Color.White,
+                    ),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("🗺️ Map (${state.items.count { it.data.latitude != null }})")
+                }
+            }
+        }
+
         if (state.busy) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(20.dp), color = Accent, strokeWidth = 2.dp)
@@ -284,40 +483,49 @@ fun GalleryScreen(
             }
         }
 
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
-            items(state.items, key = { it.uri.toString() + it.hashCode() }) { item ->
-                ItemCard(
-                    item = item,
-                    onEdit = { state.editing = item },
-                    onPreview = {
-                        scope.launch {
-                            val cfg = settings.snapshot()
-                            previewBitmap = withContext(Dispatchers.Default) {
+        if (viewMode == GalleryViewMode.LIST) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
+                items(state.items, key = { it.uri.toString() + it.hashCode() }) { item ->
+                    ItemCard(
+                        item = item,
+                        onEdit = { state.editing = item },
+                        onPreview = {
+                            scope.launch {
+                                val cfg = settings.snapshot()
+                                previewBitmap = withContext(Dispatchers.Default) {
+                                    runCatching {
+                                        // Same pipeline as saving, just scaled down for the screen.
+                                        val full = PhotoComposer.decodeUri(context, item.uri)
+                                        val w = minOf(1200, full.width)
+                                        val small = Bitmap.createScaledBitmap(full, w, (full.height.toLong() * w / full.width).toInt().coerceAtLeast(1), true)
+                                        if (small !== full) full.recycle()
+                                        PhotoComposer.compose(small, cfg, item.data, item.time, item.meta.camera)
+                                    }.getOrNull()
+                                }
+                            }
+                        },
+                        onStamp = { state.scope.launch { stamp(item) } },
+                        onOpen = {
+                            item.savedUri?.let { uri ->
                                 runCatching {
-                                    // Same pipeline as saving, just scaled down for the screen.
-                                    val full = PhotoComposer.decodeUri(context, item.uri)
-                                    val w = minOf(1200, full.width)
-                                    val small = Bitmap.createScaledBitmap(full, w, (full.height.toLong() * w / full.width).toInt().coerceAtLeast(1), true)
-                                    if (small !== full) full.recycle()
-                                    PhotoComposer.compose(small, cfg, item.data, item.time, item.meta.camera)
-                                }.getOrNull()
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/jpeg")
+                                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                                    )
+                                }
                             }
-                        }
-                    },
-                    onStamp = { state.scope.launch { stamp(item) } },
-                    onOpen = {
-                        item.savedUri?.let { uri ->
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/jpeg")
-                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                                )
-                            }
-                        }
-                    },
-                    onRemove = { state.items.remove(item) },
-                )
+                        },
+                        onRemove = { state.items.remove(item) },
+                    )
+                }
             }
+        } else {
+            PhotoMapView(
+                items = state.items,
+                onOpenInMap = { lat, lon, label -> openInGoogleMaps(lat, lon, label) },
+                onStamp = { item -> state.scope.launch { stamp(item) } },
+                onShareWhatsApp = { item -> shareItemWhatsApp(item) },
+            )
         }
     }
 
@@ -613,6 +821,62 @@ private fun EditDetailsScreen(
             }
             Field("Time zone offset (e.g. +05:30)", offset) { offset = it }
 
+            Section("AI & Text Extraction")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                working = true
+                                val bmp = PhotoComposer.decodeUri(context, item.uri)
+                                val text = com.geostamp.camera.ai.VisionAnalyzer.recognizeText(bmp)
+                                bmp.recycle()
+                                working = false
+                                if (!text.isNullOrBlank()) {
+                                    val firstLine = text.lines().firstOrNull { it.isNotBlank() } ?: text
+                                    settings.note = firstLine.take(80)
+                                    Toast.makeText(context, "OCR: $firstLine", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "No text found in photo", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                working = false
+                                Toast.makeText(context, "OCR error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("🔤 OCR Signboard", color = Color.White, fontSize = 12.sp)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                working = true
+                                val bmp = PhotoComposer.decodeUri(context, item.uri)
+                                val caption = com.geostamp.camera.ai.VisionAnalyzer.autoCaption(bmp)
+                                bmp.recycle()
+                                working = false
+                                if (!caption.isNullOrBlank()) {
+                                    settings.note = caption
+                                    Toast.makeText(context, "Caption: $caption", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Could not identify scene", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                working = false
+                                Toast.makeText(context, "Caption error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("🏷️ Auto Caption", color = Color.White, fontSize = 12.sp)
+                }
+            }
+
             Section("Weather")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Field("Temperature °C", temp, KeyboardType.Decimal, Modifier.weight(1f)) { temp = it }
@@ -692,3 +956,178 @@ private fun Field(
         modifier = modifier,
     )
 }
+
+@Composable
+private fun PhotoMapView(
+    items: List<GalleryItem>,
+    onOpenInMap: (Double, Double, String) -> Unit,
+    onStamp: (GalleryItem) -> Unit,
+    onShareWhatsApp: (GalleryItem) -> Unit,
+) {
+    val geoItems = items.filter { it.data.latitude != null && it.data.longitude != null }
+    val unmappedItems = items.filter { it.data.latitude == null || it.data.longitude == null }
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp, top = 8.dp),
+    ) {
+        if (geoItems.isEmpty()) {
+            item {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Default.LocationOff,
+                        contentDescription = null,
+                        tint = Muted,
+                        modifier = Modifier.size(48.dp),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "No photos with GPS coordinates yet",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Pick photos containing geotags, or tap 'Use my current location' to assign your position to photos.",
+                        color = Muted,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        } else {
+            item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Map, contentDescription = null, tint = Accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "${geoItems.size} geo-tagged photos plotted",
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp,
+                    )
+                }
+            }
+
+            items(geoItems, key = { "map_" + it.uri.toString() + it.hashCode() }) { item ->
+                MapItemCard(
+                    item = item,
+                    onOpenInMap = {
+                        val lat = item.data.latitude ?: return@MapItemCard
+                        val lon = item.data.longitude ?: return@MapItemCard
+                        val label = item.data.title ?: item.name
+                        onOpenInMap(lat, lon, label)
+                    },
+                    onStamp = { onStamp(item) },
+                    onShareWhatsApp = { onShareWhatsApp(item) },
+                )
+            }
+        }
+
+        if (unmappedItems.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "⚠️ ${unmappedItems.size} photo(s) without GPS coordinates",
+                    color = Color(0xFFFFB74D),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapItemCard(
+    item: GalleryItem,
+    onOpenInMap: () -> Unit,
+    onStamp: () -> Unit,
+    onShareWhatsApp: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Card)
+            .padding(12.dp),
+    ) {
+        Row {
+            Box(
+                Modifier
+                    .size(88.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.DarkGray),
+            ) {
+                val tile = item.data.mapBitmap
+                if (tile != null && !tile.isRecycled) {
+                    Image(tile.asImageBitmap(), "Map tile", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else if (item.thumb != null && !item.thumb.isRecycled) {
+                    Image(item.thumb.asImageBitmap(), "Photo thumb", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(item.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, fontSize = 14.sp)
+                val lat = item.data.latitude
+                val lon = item.data.longitude
+                if (lat != null && lon != null) {
+                    Text(
+                        String.format(Locale.US, "📍 %.5f, %.5f", lat, lon),
+                        color = Color(0xFF81C784),
+                        fontSize = 12.sp,
+                    )
+                }
+                item.data.plusCode?.let {
+                    Text("🌐 $it", color = Muted, fontSize = 11.sp, maxLines = 1)
+                }
+                item.data.title?.let {
+                    Text("🏢 $it", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, maxLines = 1)
+                }
+                Text(
+                    "🕒 " + DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(item.time),
+                    color = Muted,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            OutlinedButton(
+                onClick = onOpenInMap,
+                modifier = Modifier.padding(end = 6.dp),
+            ) {
+                Text("🗺️ Map", color = Color.White, fontSize = 12.sp)
+            }
+            if (item.status == ItemStatus.SAVED) {
+                Button(
+                    onClick = onShareWhatsApp,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366), contentColor = Color.White),
+                ) {
+                    Text("💬 WhatsApp", fontSize = 12.sp)
+                }
+            } else {
+                Button(
+                    onClick = onStamp,
+                    enabled = item.status != ItemStatus.SAVING && item.status != ItemStatus.LOOKING_UP,
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
+                ) {
+                    Text("⚡ Stamp", fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+

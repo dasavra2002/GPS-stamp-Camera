@@ -1,10 +1,12 @@
 package com.geostamp.camera.data
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -14,7 +16,7 @@ import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.tan
 
-private const val USER_AGENT = "GeoStampCamera/1.0 (Android)"
+private const val USER_AGENT = "GeoStampCamera/1.0 (Android; +https://github.com/dasavra2002/GPS-stamp-Camera)"
 
 private fun httpGet(url: String): ByteArray? {
     var conn: HttpURLConnection? = null
@@ -37,30 +39,63 @@ data class Weather(
     val humidity: Int?,
     val windKmh: Double?,
     val pressureHpa: Double?,
+    val aqi: Int? = null,
+    val sunrise: String? = null,
+    val sunset: String? = null,
 )
 
-/** Current weather from Open-Meteo (free, no API key). */
+/** Current weather and air quality from Open-Meteo (free, no API key). */
 object WeatherFetcher {
     fun fetch(lat: Double, lon: Double): Weather? {
         val url = String.format(
             Locale.US,
             "https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f" +
                 "&current=temperature_2m,relative_humidity_2m,wind_speed_10m,surface_pressure" +
-                "&wind_speed_unit=kmh",
+                "&daily=sunrise,sunset&timezone=auto&wind_speed_unit=kmh",
             lat, lon,
         )
         val body = httpGet(url) ?: return null
         return try {
-            val cur = JSONObject(String(body)).getJSONObject("current")
+            val json = JSONObject(String(body))
+            val cur = json.getJSONObject("current")
+
+            var sr: String? = null
+            var ss: String? = null
+            if (json.has("daily")) {
+                val daily = json.getJSONObject("daily")
+                sr = daily.optJSONArray("sunrise")?.optString(0)?.substringAfter('T')?.take(5)
+                ss = daily.optJSONArray("sunset")?.optString(0)?.substringAfter('T')?.take(5)
+            }
+
+            // Air Quality fetch (AQI)
+            val aqiVal = fetchAqi(lat, lon)
+
             Weather(
                 temperatureC = cur.optDoubleOrNull("temperature_2m"),
                 humidity = cur.optDoubleOrNull("relative_humidity_2m")?.toInt(),
                 windKmh = cur.optDoubleOrNull("wind_speed_10m"),
                 pressureHpa = cur.optDoubleOrNull("surface_pressure"),
+                aqi = aqiVal,
+                sunrise = sr,
+                sunset = ss,
             )
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun fetchAqi(lat: Double, lon: Double): Int? = try {
+        val url = String.format(
+            Locale.US,
+            "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=%.5f&longitude=%.5f&current=us_aqi",
+            lat, lon,
+        )
+        val body = httpGet(url)
+        if (body != null) {
+            JSONObject(String(body)).getJSONObject("current").optInt("us_aqi", -1).takeIf { it >= 0 }
+        } else null
+    } catch (_: Exception) {
+        null
     }
 
     /**
@@ -116,10 +151,20 @@ object WeatherFetcher {
  */
 object MapTileFetcher {
     private const val TILE = 256
+    // Web Mercator valid latitude range is approximately [-85.05112878, 85.05112878]
+    private const val MAX_LAT = 85.05112878
 
-    fun fetch(lat: Double, lon: Double, type: MapType, zoom: Int = 17, sizePx: Int = 512): Bitmap? {
+    fun fetch(
+        lat: Double,
+        lon: Double,
+        type: MapType,
+        zoom: Int = 17,
+        sizePx: Int = 512,
+        context: Context? = null,
+    ): Bitmap? {
         val n = 1 shl zoom
-        val latRad = lat * PI / 180.0
+        val clampedLat = lat.coerceIn(-MAX_LAT, MAX_LAT)
+        val latRad = clampedLat * PI / 180.0
         val worldX = (lon + 180.0) / 360.0 * n * TILE
         val worldY = (1.0 - ln(tan(latRad) + 1.0 / cos(latRad)) / PI) / 2.0 * n * TILE
 
@@ -128,6 +173,8 @@ object MapTileFetcher {
         val out = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         canvas.drawColor(Color.rgb(60, 60, 60))
+
+        val cacheBase = context?.let { File(it.cacheDir, "map_tiles/${type.name.lowercase()}/$zoom") }
 
         var gotAny = false
         val tx0 = floor(left / TILE).toInt()
@@ -138,15 +185,29 @@ object MapTileFetcher {
             if (ty < 0 || ty >= n) continue
             for (tx in tx0..tx1) {
                 val wrappedX = ((tx % n) + n) % n
-                val url = when (type) {
-                    MapType.SATELLITE ->
-                        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$zoom/$ty/$wrappedX"
-                    MapType.TERRAIN ->
-                        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/$zoom/$ty/$wrappedX"
-                    MapType.STREET ->
-                        "https://tile.openstreetmap.org/$zoom/$wrappedX/$ty.png"
+                val cacheFile = cacheBase?.let { File(it, "${ty}_${wrappedX}.png") }
+                val bytes: ByteArray? = if (cacheFile != null && cacheFile.exists() && cacheFile.length() > 0) {
+                    runCatching { cacheFile.readBytes() }.getOrNull()
+                } else {
+                    val url = when (type) {
+                        MapType.SATELLITE ->
+                            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$zoom/$ty/$wrappedX"
+                        MapType.TERRAIN ->
+                            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/$zoom/$ty/$wrappedX"
+                        MapType.STREET ->
+                            "https://tile.openstreetmap.org/$zoom/$wrappedX/$ty.png"
+                    }
+                    val downloaded = httpGet(url)
+                    if (downloaded != null && cacheFile != null) {
+                        runCatching {
+                            cacheFile.parentFile?.mkdirs()
+                            cacheFile.writeBytes(downloaded)
+                        }
+                    }
+                    downloaded
                 }
-                val bytes = httpGet(url) ?: continue
+
+                if (bytes == null) continue
                 val tile = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: continue
                 canvas.drawBitmap(
                     tile,

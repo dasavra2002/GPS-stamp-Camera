@@ -11,6 +11,14 @@ enum class PhotoFormat(override val label: String) : Labeled {
     RAW("RAW only (DNG)"),
 }
 
+enum class ExtensionModeType(override val label: String) : Labeled {
+    NONE("Normal"),
+    HDR("HDR"),
+    NIGHT("Night"),
+    BOKEH("Portrait"),
+    FACE_RETOUCH("Retouch"),
+}
+
 /**
  * Photo aspect ratios. 4:3 and 16:9 come straight off the sensor; the others are
  * cropped from the closest native ratio (the preview shows the crop frame).
@@ -77,6 +85,15 @@ class CameraSettings(context: Context) {
     /** "max" or "WIDTHxHEIGHT". */
     var photoResolution by stringPref("photo_res", "max")
     var hdrPhoto by boolPref("hdr_photo", false)
+    var photoExtension by enumPref("photo_ext", ExtensionModeType.NONE, ExtensionModeType.entries)
+    var timerSeconds by intPref("timer_sec", 0)
+    var burstCount by intPref("burst_count", 1)
+    var timelapseIntervalSec by intPref("timelapse_interval_sec", 2)
+    var autoDriveUpload by boolPref("auto_drive_upload", false)
+    var ghostOverlay by boolPref("ghost_overlay", false)
+    var pipMode by boolPref("pip_mode", false)
+    var documentMode by boolPref("document_mode", false)
+    var attendanceMode by boolPref("attendance_mode", false)
 
     // Video
     var videoRes by enumPref("video_res", VideoRes.FHD, VideoRes.entries)

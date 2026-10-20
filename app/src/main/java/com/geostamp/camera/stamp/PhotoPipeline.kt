@@ -5,8 +5,12 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -23,6 +27,10 @@ import java.util.Locale
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+enum class PipPosition {
+    TOP_RIGHT, TOP_LEFT, BOTTOM_RIGHT, BOTTOM_LEFT
+}
+
 object PhotoComposer {
     /** Photos larger than this are decoded at half size to avoid running out of memory. */
     private const val MAX_PIXELS = 26_000_000L
@@ -33,13 +41,89 @@ object PhotoComposer {
 
     fun marginFor(photoW: Int): Float = photoW * 0.02f
 
+    /**
+     * Composites a secondary inset image (e.g. front selfie camera) into the primary photo.
+     */
+    fun compositePip(
+        main: Bitmap,
+        inset: Bitmap,
+        position: PipPosition = PipPosition.TOP_RIGHT,
+        sizeFraction: Float = 0.28f,
+    ): Bitmap {
+        val out = if (main.isMutable) main else main.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(out)
+
+        val insetW = (main.width * sizeFraction).roundToInt().coerceAtLeast(100)
+        val insetH = (insetW * 4f / 3f).roundToInt()
+        val scaledInset = Bitmap.createScaledBitmap(inset, insetW, insetH, true)
+
+        val margin = main.width * 0.03f
+        val left = when (position) {
+            PipPosition.TOP_LEFT, PipPosition.BOTTOM_LEFT -> margin
+            PipPosition.TOP_RIGHT, PipPosition.BOTTOM_RIGHT -> main.width - insetW - margin
+        }
+        val top = when (position) {
+            PipPosition.TOP_LEFT, PipPosition.TOP_RIGHT -> margin
+            PipPosition.BOTTOM_LEFT, PipPosition.BOTTOM_RIGHT -> (main.height - insetH - margin - (main.height * 0.20f)).coerceAtLeast(margin)
+        }
+
+        val rectF = RectF(left, top, left + insetW, top + insetH)
+        val cornerRadius = insetW * 0.12f
+
+        // Drop shadow
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x88000000.toInt() }
+        canvas.drawRoundRect(RectF(left + 6f, top + 6f, left + insetW + 6f, top + insetH + 6f), cornerRadius, cornerRadius, shadowPaint)
+
+        // Clip and draw rounded inset image
+        val clipPath = Path().apply { addRoundRect(rectF, cornerRadius, cornerRadius, Path.Direction.CW) }
+        canvas.save()
+        canvas.clipPath(clipPath)
+        canvas.drawBitmap(scaledInset, left, top, Paint(Paint.FILTER_BITMAP_FLAG))
+        canvas.restore()
+
+        // Amber border
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = (insetW * 0.025f).coerceAtLeast(4f)
+            color = 0xFFFFC107.toInt()
+        }
+        canvas.drawRoundRect(rectF, cornerRadius, cornerRadius, borderPaint)
+
+        if (scaledInset !== inset && !scaledInset.isRecycled) scaledInset.recycle()
+        return out
+    }
+
+    /**
+     * Enhances paper documents and receipts by boosting text contrast,
+     * flattening shadows, and sharpening edges.
+     */
+    fun applyDocumentEnhancement(source: Bitmap): Bitmap {
+        val out = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val cm = ColorMatrix(floatArrayOf(
+            1.4f, 0f, 0f, 0f, -40f,
+            0f, 1.4f, 0f, 0f, -40f,
+            0f, 0f, 1.4f, 0f, -40f,
+            0f, 0f, 0f, 1f, 0f,
+        ))
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(cm)
+        }
+        canvas.drawBitmap(source, 0f, 0f, paint)
+        return out
+    }
+
     fun compose(photo: Bitmap, config: StampConfig, data: StampData, time: ZonedDateTime, cameraLabel: String?): Bitmap {
-        val out = if (photo.isMutable) photo else photo.copy(Bitmap.Config.ARGB_8888, true)
+        val out = if (photo.isMutable) photo else photo.copy(Bitmap.Config.ARGB_8888, true).also { photo.recycle() }
         val sw = stampWidthFor(out.width, out.height, config.size)
         val stamp = WatermarkRenderer.render(sw, config, data, time, cameraLabel) ?: return out
         val margin = marginFor(out.width)
         val x = (out.width - sw) / 2f
-        val y = if (config.position == StampPosition.BOTTOM) out.height - stamp.height - margin else margin
+        val y = when (config.position) {
+            StampPosition.BOTTOM -> out.height - stamp.height - margin
+            StampPosition.TOP -> margin
+            StampPosition.CENTER -> (out.height - stamp.height) / 2f
+        }
         Canvas(out).drawBitmap(stamp, x, y, Paint(Paint.FILTER_BITMAP_FLAG))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             neutralizeGainmap(out, x, y, sw.toFloat(), stamp.height.toFloat())
@@ -69,21 +153,27 @@ object PhotoComposer {
         }
     }
 
+    /** Calculates target dimensions for centre-cropping to [ratio] (long / short side). */
+    fun calculateCropDimensions(srcWidth: Int, srcHeight: Int, ratio: Float): Pair<Int, Int> {
+        val landscape = srcWidth >= srcHeight
+        val want = if (landscape) ratio else 1f / ratio // width / height
+        val current = srcWidth.toFloat() / srcHeight
+        val w: Int
+        val h: Int
+        if (current > want) {
+            h = srcHeight; w = (srcHeight * want).roundToInt().coerceIn(1, srcWidth)
+        } else {
+            w = srcWidth; h = (srcWidth / want).roundToInt().coerceIn(1, srcHeight)
+        }
+        return w to h
+    }
+
     /**
      * Centre-crops a photo to [ratio] (long side / short side), keeping its orientation.
      * Used for the 3:2, 1:1, 5:4 and 2.39:1 photo formats.
      */
     fun cropToAspect(src: Bitmap, ratio: Float): Bitmap {
-        val landscape = src.width >= src.height
-        val want = if (landscape) ratio else 1f / ratio // width / height
-        val current = src.width.toFloat() / src.height
-        val w: Int
-        val h: Int
-        if (current > want) {
-            h = src.height; w = (src.height * want).roundToInt().coerceIn(1, src.width)
-        } else {
-            w = src.width; h = (src.width / want).roundToInt().coerceIn(1, src.height)
-        }
+        val (w, h) = calculateCropDimensions(src.width, src.height, ratio)
         if (w == src.width && h == src.height) return src
         val out = Bitmap.createBitmap(src, (src.width - w) / 2, (src.height - h) / 2, w, h)
         val mutable = if (out.isMutable) out else out.copy(Bitmap.Config.ARGB_8888, true).also { if (out !== src) out.recycle() }
@@ -180,14 +270,14 @@ object PhotoSaver {
     private const val FOLDER = "GeoStamp"
 
     /** Saves the stamped photo to Pictures/GeoStamp with GPS and date EXIF. Returns its Uri. */
-    fun save(context: Context, bitmap: Bitmap, data: StampData, time: ZonedDateTime, prefix: String = "GeoStamp"): Uri? {
+    fun save(context: Context, bitmap: Bitmap, data: StampData, time: ZonedDateTime, prefix: String = "GeoStamp", subFolder: String? = null): Uri? {
         val name = prefix + "_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS", Locale.US).format(ZonedDateTime.now()) + ".jpg"
         val temp = File(context.cacheDir, name)
         temp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
         writeExif(temp, data, time)
 
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) saveQ(context, temp, name) else saveLegacy(context, temp, name)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) saveQ(context, temp, name, subFolder) else saveLegacy(context, temp, name, subFolder)
         } finally {
             temp.delete()
         }
@@ -216,11 +306,17 @@ object PhotoSaver {
         }
     }
 
-    private fun saveQ(context: Context, temp: File, name: String): Uri? {
+    private fun saveQ(context: Context, temp: File, name: String, subFolder: String? = null): Uri? {
+        val relPath = if (!subFolder.isNullOrBlank()) {
+            val safe = subFolder.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            Environment.DIRECTORY_PICTURES + "/" + FOLDER + "/" + safe
+        } else {
+            Environment.DIRECTORY_PICTURES + "/" + FOLDER
+        }
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/" + FOLDER)
+            put(MediaStore.Images.Media.RELATIVE_PATH, relPath)
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
         val cr = context.contentResolver
@@ -238,8 +334,12 @@ object PhotoSaver {
     }
 
     @Suppress("DEPRECATION")
-    private fun saveLegacy(context: Context, temp: File, name: String): Uri? {
-        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), FOLDER)
+    private fun saveLegacy(context: Context, temp: File, name: String, subFolder: String? = null): Uri? {
+        val baseDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), FOLDER)
+        val dir = if (!subFolder.isNullOrBlank()) {
+            val safe = subFolder.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            File(baseDir, safe)
+        } else baseDir
         if (!dir.exists()) dir.mkdirs()
         val dest = File(dir, name)
         temp.copyTo(dest, overwrite = true)

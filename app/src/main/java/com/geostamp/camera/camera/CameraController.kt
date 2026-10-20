@@ -30,7 +30,6 @@ import android.view.Surface
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraEffect
@@ -102,17 +101,22 @@ data class LensCaps(
     val rawOnly: Boolean = false,
     val ultraHdrPhoto: Boolean = false,
     val hdrExtension: Boolean = false,
+    val nightExtension: Boolean = false,
+    val bokehExtension: Boolean = false,
+    val faceRetouchExtension: Boolean = false,
     val videoColors: List<VideoColor> = listOf(VideoColor.SDR),
     val videoResolutions: List<VideoRes> = emptyList(),
 ) {
     val hdrPhoto get() = hdrExtension || ultraHdrPhoto
     val anyRaw get() = rawJpeg || rawOnly
+    val anyExtension get() = hdrExtension || nightExtension || bokehExtension || faceRetouchExtension
 }
 
-enum class CaptureMode { PHOTO, VIDEO }
+enum class CaptureMode { PHOTO, VIDEO, TIMELAPSE }
 
 data class PhotoSpec(
     val hdr: Boolean,
+    val extension: com.geostamp.camera.data.ExtensionModeType = com.geostamp.camera.data.ExtensionModeType.NONE,
     val format: PhotoFormat,
     val aspect: PhotoAspect,
     val resolution: String,
@@ -144,7 +148,6 @@ data class BindResult(
 
 class CapturedPhoto(val jpeg: ByteArray, val rotationDegrees: Int)
 
-@OptIn(ExperimentalCamera2Interop::class)
 class CameraController(private val context: Context) {
 
     private var provider: ProcessCameraProvider? = null
@@ -372,8 +375,10 @@ class CameraController(private val context: Context) {
         val info = cameraInfoFor(lens) ?: return LensCaps()
         val formats = runCatching { ImageCapture.getImageCaptureCapabilities(info).supportedOutputFormats }
             .getOrDefault(emptySet())
-        val hdrExt = runCatching { extensions?.isExtensionAvailable(selectorFor(lens), ExtensionMode.HDR) == true }
-            .getOrDefault(false)
+        val hdrExt = runCatching { extensions?.isExtensionAvailable(selectorFor(lens), ExtensionMode.HDR) == true }.getOrDefault(false)
+        val nightExt = runCatching { extensions?.isExtensionAvailable(selectorFor(lens), ExtensionMode.NIGHT) == true }.getOrDefault(false)
+        val bokehExt = runCatching { extensions?.isExtensionAvailable(selectorFor(lens), ExtensionMode.BOKEH) == true }.getOrDefault(false)
+        val faceExt = runCatching { extensions?.isExtensionAvailable(selectorFor(lens), ExtensionMode.FACE_RETOUCH) == true }.getOrDefault(false)
         val videoCaps = runCatching { Recorder.getVideoCapabilities(info) }.getOrNull()
         val ranges = videoCaps?.supportedDynamicRanges ?: emptySet()
         val colors = VideoColor.entries.filter { it == VideoColor.SDR || dynamicRangeOf(it) in ranges }
@@ -384,6 +389,9 @@ class CameraController(private val context: Context) {
             rawOnly = ImageCapture.OUTPUT_FORMAT_RAW in formats,
             ultraHdrPhoto = ImageCapture.OUTPUT_FORMAT_JPEG_ULTRA_HDR in formats,
             hdrExtension = hdrExt,
+            nightExtension = nightExt,
+            bokehExtension = bokehExt,
+            faceRetouchExtension = faceExt,
             videoColors = colors,
             videoResolutions = resolutions.ifEmpty { VideoRes.entries },
         )
@@ -482,7 +490,38 @@ class CameraController(private val context: Context) {
             PhotoFormat.JPEG -> ImageCapture.OUTPUT_FORMAT_JPEG
         }
         var hdrLabel: String? = null
-        if (spec.hdr) {
+        if (spec.extension != com.geostamp.camera.data.ExtensionModeType.NONE && !isRaw) {
+            when (spec.extension) {
+                com.geostamp.camera.data.ExtensionModeType.NIGHT -> {
+                    if (caps.nightExtension) {
+                        selector = extensions!!.getExtensionEnabledCameraSelector(selector, ExtensionMode.NIGHT)
+                        hdrLabel = "Night"
+                    } else notices += "Night mode not supported on this lens"
+                }
+                com.geostamp.camera.data.ExtensionModeType.BOKEH -> {
+                    if (caps.bokehExtension) {
+                        selector = extensions!!.getExtensionEnabledCameraSelector(selector, ExtensionMode.BOKEH)
+                        hdrLabel = "Portrait"
+                    } else notices += "Portrait blur not supported on this lens"
+                }
+                com.geostamp.camera.data.ExtensionModeType.FACE_RETOUCH -> {
+                    if (caps.faceRetouchExtension) {
+                        selector = extensions!!.getExtensionEnabledCameraSelector(selector, ExtensionMode.FACE_RETOUCH)
+                        hdrLabel = "Retouch"
+                    } else notices += "Face retouch not supported on this lens"
+                }
+                com.geostamp.camera.data.ExtensionModeType.HDR -> {
+                    if (caps.hdrExtension) {
+                        selector = extensions!!.getExtensionEnabledCameraSelector(selector, ExtensionMode.HDR)
+                        hdrLabel = "HDR"
+                    } else if (caps.ultraHdrPhoto) {
+                        outputFormat = ImageCapture.OUTPUT_FORMAT_JPEG_ULTRA_HDR
+                        hdrLabel = "Ultra HDR"
+                    } else notices += "HDR photos not supported on this lens"
+                }
+                com.geostamp.camera.data.ExtensionModeType.NONE -> Unit
+            }
+        } else if (spec.hdr) {
             when {
                 isRaw -> notices += "HDR is off while shooting RAW"
                 caps.hdrExtension -> {

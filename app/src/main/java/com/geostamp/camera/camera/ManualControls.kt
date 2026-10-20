@@ -6,7 +6,6 @@ import android.hardware.camera2.params.RggbChannelVector
 import android.util.Range
 import android.util.Size
 import androidx.camera.camera2.interop.CaptureRequestOptions
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -122,7 +121,6 @@ object Manual {
     }
 
     /** Camera2 request options for the current manual settings. */
-    @OptIn(ExperimentalCamera2Interop::class)
     fun options(state: ManualState, info: SensorInfo, readout: Readout, fps: Int): CaptureRequestOptions {
         val b = CaptureRequestOptions.Builder()
 

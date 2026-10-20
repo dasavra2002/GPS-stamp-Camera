@@ -87,20 +87,34 @@ object GalleryStamper {
                 ?: exif.getAttribute(ExifInterface.TAG_DATETIME)
             val offset = exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL)
                 ?: exif.getAttribute(ExifInterface.TAG_OFFSET_TIME)
-            if (raw != null) {
-                try {
-                    val local = LocalDateTime.parse(raw.trim(), DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.US))
-                    val zone: ZoneId = offset?.let { runCatching { ZoneOffset.of(it.trim()) }.getOrNull() } ?: ZoneId.systemDefault()
-                    time = local.atZone(zone)
-                } catch (e: Exception) {
-                    // unparseable date, fall through
-                }
-            }
+            time = parseExifDateTime(raw, offset)
         }
         val fromExif = time != null
         if (time == null) time = fileTime(context, uri)
 
         return PhotoMeta(lat, lon, alt, time, fromExif, dir, camera)
+    }
+
+    /** Parses EXIF date/time strings with fallbacks for alternative separators (: / - T). */
+    fun parseExifDateTime(raw: String?, offset: String?): ZonedDateTime? {
+        if (raw.isNullOrBlank()) return null
+        val trimmed = raw.trim()
+        val patterns = listOf(
+            "yyyy:MM:dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy/MM/dd HH:mm:ss",
+            "yyyy:MM:dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss",
+        )
+        for (pattern in patterns) {
+            try {
+                val local = LocalDateTime.parse(trimmed, DateTimeFormatter.ofPattern(pattern, Locale.US))
+                val zone: ZoneId = offset?.let { runCatching { ZoneOffset.of(it.trim()) }.getOrNull() } ?: ZoneId.systemDefault()
+                return local.atZone(zone)
+            } catch (_: Exception) {
+            }
+        }
+        return null
     }
 
     /** Date the photo was taken according to the gallery, or the file's modified date. */
@@ -135,7 +149,7 @@ object GalleryStamper {
     ): StampData {
         val geo = Geo.reverse(context, lat, lon)
         val weather = WeatherFetcher.fetchAt(lat, lon, time)
-        val map = MapTileFetcher.fetch(lat, lon, mapType)
+        val map = MapTileFetcher.fetch(lat, lon, mapType, context = context)
         return base.copy(
             latitude = lat,
             longitude = lon,

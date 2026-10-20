@@ -41,14 +41,20 @@ enum class StampField(
     NUMBERING("f_numbering", "Numbering (photo counter)", StampGroup.TIME, true),
 
     LOGO("f_logo", "Logo", StampGroup.BRANDING, true),
+    QR_CODE("f_qr", "Tamper-proof QR code (Signature)", StampGroup.BRANDING, false),
+    PROJECT("f_project", "Project / Site", StampGroup.BRANDING, true),
     NOTE("f_note", "Note / Hashtag", StampGroup.BRANDING, true),
     PERSON_NAME("f_person", "Person name", StampGroup.BRANDING, true),
     PHONE("f_phone", "Contact number", StampGroup.BRANDING, true),
+    CUSTOM_1("f_custom1", "Custom Field 1", StampGroup.BRANDING, false),
+    CUSTOM_2("f_custom2", "Custom Field 2", StampGroup.BRANDING, false),
 
     TEMPERATURE("f_temp", "Temperature", StampGroup.WEATHER, true),
     WIND("f_wind", "Wind", StampGroup.WEATHER, true),
     HUMIDITY("f_humidity", "Humidity", StampGroup.WEATHER, true),
     PRESSURE("f_pressure", "Pressure", StampGroup.WEATHER, true),
+    AQI("f_aqi", "Air Quality (AQI)", StampGroup.WEATHER, false),
+    SUN_TIMES("f_suntimes", "Sunrise & Sunset", StampGroup.WEATHER, false),
 
     COMPASS("f_compass", "Compass", StampGroup.SENSORS, true),
     MAGNETIC("f_magnetic", "Magnetic field", StampGroup.SENSORS, true),
@@ -93,7 +99,7 @@ enum class StampSize(override val label: String, val scale: Float) : Labeled {
     LARGE("Large", 1.2f),
 }
 
-enum class StampPosition(override val label: String) : Labeled { BOTTOM("Bottom"), TOP("Top") }
+enum class StampPosition(override val label: String) : Labeled { BOTTOM("Bottom"), TOP("Top"), CENTER("Center") }
 
 enum class MapPosition(override val label: String) : Labeled { LEFT("Left"), RIGHT("Right") }
 
@@ -105,12 +111,34 @@ enum class DateFormat(override val label: String, val pattern: String) : Labeled
     ISO("2026-10-17 23:14:05", "yyyy-MM-dd HH:mm:ss"),
 }
 
+enum class StampLanguage(override val label: String, val code: String) : Labeled {
+    ENGLISH("English", "en"),
+    HINDI("Hindi (हिन्दी)", "hi"),
+    BENGALI("Bengali (বাংলা)", "bn"),
+    MARATHI("Marathi (मराठी)", "mr"),
+    GUJARATI("Gujarati (ગુજરાતી)", "gu"),
+    TAMIL("Tamil (தமிழ்)", "ta"),
+    TELUGU("Telugu (తెలుగు)", "te"),
+}
+
+enum class StampTemplate(override val label: String) : Labeled {
+    STANDARD("Standard (All Fields)"),
+    INSPECTION("Field Inspection & Proof of Work"),
+    ATTENDANCE("Selfie Attendance Punch"),
+    MINIMAL("Minimal (GPS & Time Only)"),
+}
+
 /** Immutable copy of the settings, safe to hand to background rendering. */
 data class StampConfig(
     val enabled: Set<StampField>,
     val note: String,
     val personName: String,
     val phone: String,
+    val siteName: String = "",
+    val custom1Label: String = "",
+    val custom1Value: String = "",
+    val custom2Label: String = "",
+    val custom2Value: String = "",
     val number: Int,
     val mapType: MapType,
     val font: FontStyle,
@@ -121,6 +149,8 @@ data class StampConfig(
     val mapPosition: MapPosition,
     val mapScalePercent: Int,
     val dateFormat: DateFormat,
+    val coordinateFormat: CoordinateFormat = CoordinateFormat.DECIMAL,
+    val language: StampLanguage = StampLanguage.ENGLISH,
     val logo: Bitmap?,
 ) {
     fun has(f: StampField) = f in enabled
@@ -156,6 +186,124 @@ class StampSettings(private val context: Context) {
     var phone: String
         get() = phoneState.value
         set(v) { phoneState.value = v; prefs.edit().putString("phone", v).apply() }
+
+    private val siteState = stringState("site_name", "")
+    var siteName: String
+        get() = siteState.value
+        set(v) { siteState.value = v; prefs.edit().putString("site_name", v).apply() }
+
+    private val custom1LabelState = stringState("custom1_label", "Engineer")
+    var custom1Label: String
+        get() = custom1LabelState.value
+        set(v) { custom1LabelState.value = v; prefs.edit().putString("custom1_label", v).apply() }
+
+    private val custom1ValueState = stringState("custom1_val", "")
+    var custom1Value: String
+        get() = custom1ValueState.value
+        set(v) { custom1ValueState.value = v; prefs.edit().putString("custom1_val", v).apply() }
+
+    private val custom2LabelState = stringState("custom2_label", "Contractor")
+    var custom2Label: String
+        get() = custom2LabelState.value
+        set(v) { custom2LabelState.value = v; prefs.edit().putString("custom2_label", v).apply() }
+
+    private val custom2ValueState = stringState("custom2_val", "")
+    var custom2Value: String
+        get() = custom2ValueState.value
+        set(v) { custom2ValueState.value = v; prefs.edit().putString("custom2_val", v).apply() }
+
+    private val languageState = enumState("language", StampLanguage.ENGLISH, StampLanguage.entries)
+    var language: StampLanguage
+        get() = languageState.value
+        set(v) = putEnum("language", languageState, v)
+
+    // Geofencing coordinates and radius
+    private val siteLatState = mutableStateOf(if (prefs.contains("site_lat")) prefs.getFloat("site_lat", 0f).toDouble() else null)
+    var siteLat: Double?
+        get() = siteLatState.value
+        set(v) {
+            siteLatState.value = v
+            if (v != null) prefs.edit().putFloat("site_lat", v.toFloat()).apply()
+            else prefs.edit().remove("site_lat").apply()
+        }
+
+    private val siteLonState = mutableStateOf(if (prefs.contains("site_lon")) prefs.getFloat("site_lon", 0f).toDouble() else null)
+    var siteLon: Double?
+        get() = siteLonState.value
+        set(v) {
+            siteLonState.value = v
+            if (v != null) prefs.edit().putFloat("site_lon", v.toFloat()).apply()
+            else prefs.edit().remove("site_lon").apply()
+        }
+
+    private val siteRadiusMState = mutableStateOf(prefs.getFloat("site_radius_m", 250f))
+    var siteRadiusM: Float
+        get() = siteRadiusMState.value
+        set(v) { siteRadiusMState.value = v; prefs.edit().putFloat("site_radius_m", v).apply() }
+
+    fun applyTemplate(t: StampTemplate) {
+        when (t) {
+            StampTemplate.STANDARD -> {
+                StampField.entries.forEach { setEnabled(it, it.defaultOn) }
+            }
+            StampTemplate.INSPECTION -> {
+                StampField.entries.forEach { setEnabled(it, false) }
+                listOf(
+                    StampField.MAP, StampField.TITLE, StampField.ADDRESS, StampField.LAT_LONG,
+                    StampField.ALTITUDE, StampField.PLUS_CODE, StampField.DATE_TIME, StampField.NUMBERING,
+                    StampField.PROJECT, StampField.NOTE, StampField.QR_CODE, StampField.CUSTOM_1
+                ).forEach { setEnabled(it, true) }
+            }
+            StampTemplate.ATTENDANCE -> {
+                StampField.entries.forEach { setEnabled(it, false) }
+                listOf(
+                    StampField.TITLE, StampField.ADDRESS, StampField.LAT_LONG, StampField.DATE_TIME,
+                    StampField.TIME_ZONE, StampField.PERSON_NAME, StampField.QR_CODE, StampField.PROJECT
+                ).forEach { setEnabled(it, true) }
+            }
+            StampTemplate.MINIMAL -> {
+                StampField.entries.forEach { setEnabled(it, false) }
+                listOf(StampField.LAT_LONG, StampField.DATE_TIME, StampField.PLUS_CODE).forEach { setEnabled(it, true) }
+            }
+        }
+    }
+
+    fun saveCustomTemplate(slot: Int, name: String) {
+        val set = StampField.entries.filter { isEnabled(it) }.map { it.name }.toSet()
+        prefs.edit()
+            .putStringSet("custom_template_fields_$slot", set)
+            .putString("custom_template_name_$slot", name)
+            .putString("custom_template_font_$slot", font.name)
+            .putString("custom_template_color_$slot", color.name)
+            .putString("custom_template_bg_$slot", background.name)
+            .putString("custom_template_pos_$slot", position.name)
+            .apply()
+    }
+
+    fun hasCustomTemplate(slot: Int): Boolean {
+        return prefs.contains("custom_template_name_$slot")
+    }
+
+    fun getCustomTemplateName(slot: Int): String {
+        return prefs.getString("custom_template_name_$slot", "Custom Template $slot") ?: "Custom Template $slot"
+    }
+
+    fun loadCustomTemplate(slot: Int) {
+        val set = prefs.getStringSet("custom_template_fields_$slot", null) ?: return
+        StampField.entries.forEach { setEnabled(it, it.name in set) }
+        prefs.getString("custom_template_font_$slot", null)?.let { fname ->
+            FontStyle.entries.firstOrNull { it.name == fname }?.let { font = it }
+        }
+        prefs.getString("custom_template_color_$slot", null)?.let { cname ->
+            StampColor.entries.firstOrNull { it.name == cname }?.let { color = it }
+        }
+        prefs.getString("custom_template_bg_$slot", null)?.let { bname ->
+            StampBackground.entries.firstOrNull { it.name == bname }?.let { background = it }
+        }
+        prefs.getString("custom_template_pos_$slot", null)?.let { pname ->
+            StampPosition.entries.firstOrNull { it.name == pname }?.let { position = it }
+        }
+    }
 
     /** The number that will be stamped on the NEXT photo. */
     private val numberState = mutableStateOf(prefs.getInt("number", 1))
@@ -209,6 +357,11 @@ class StampSettings(private val context: Context) {
         get() = dateFormatState.value
         set(v) = putEnum("date_format", dateFormatState, v)
 
+    private val coordFormatState = enumState("coord_format", CoordinateFormat.DECIMAL, CoordinateFormat.entries)
+    var coordinateFormat: CoordinateFormat
+        get() = coordFormatState.value
+        set(v) = putEnum("coord_format", coordFormatState, v)
+
     // ---- logo ----
     private val logoFile get() = File(context.filesDir, "custom_logo.png")
     private val logoState = mutableStateOf(loadLogo())
@@ -251,6 +404,11 @@ class StampSettings(private val context: Context) {
         note = note,
         personName = personName,
         phone = phone,
+        siteName = siteName,
+        custom1Label = custom1Label,
+        custom1Value = custom1Value,
+        custom2Label = custom2Label,
+        custom2Value = custom2Value,
         number = nextNumber,
         mapType = mapType,
         font = font,
@@ -261,6 +419,8 @@ class StampSettings(private val context: Context) {
         mapPosition = mapPosition,
         mapScalePercent = mapScalePercent,
         dateFormat = dateFormat,
+        coordinateFormat = coordinateFormat,
+        language = language,
         logo = logo,
     )
 

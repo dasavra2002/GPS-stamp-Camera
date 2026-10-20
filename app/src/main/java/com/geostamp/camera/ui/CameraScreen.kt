@@ -43,13 +43,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.FlashAuto
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -95,19 +105,25 @@ import com.geostamp.camera.data.FrameGuide
 import com.geostamp.camera.data.PhotoFormat
 import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampField
+import com.geostamp.camera.data.ExtensionModeType
 import com.geostamp.camera.data.StampPosition
 import com.geostamp.camera.data.StampSettings
+import com.geostamp.camera.data.StampTemplate
 import com.geostamp.camera.data.VideoColor
 import com.geostamp.camera.data.VideoRes
 import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.PhotoSaver
 import com.geostamp.camera.stamp.WatermarkRenderer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @SuppressLint("ClickableViewAccessibility")
@@ -117,6 +133,7 @@ fun CameraScreen(
     cam: CameraSettings,
     repo: StampDataRepository,
     controller: CameraController,
+    shutterTrigger: kotlinx.coroutines.flow.SharedFlow<Unit>? = null,
     onOpenSettings: () -> Unit,
     onOpenGallery: () -> Unit,
 ) {
@@ -150,13 +167,58 @@ fun CameraScreen(
     var openPanel by remember { mutableStateOf<Panel?>(null) }
     var recording by remember { mutableStateOf<Recording?>(null) }
     var recSeconds by remember { mutableLongStateOf(0L) }
+    var isTimelapseActive by remember { mutableStateOf(false) }
+    var timelapseFrameCount by remember { mutableIntStateOf(0) }
+    var timelapseJob by remember { mutableStateOf<Job?>(null) }
     var tick by remember { mutableIntStateOf(0) }
     var landscape by remember { mutableStateOf(false) }
     var micGranted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { micGranted = it }
+    val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val matches = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+            val text = matches?.firstOrNull()
+            if (!text.isNullOrBlank()) {
+                settings.note = text
+                Toast.makeText(context, "Voice Note: $text", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun startVoiceNote() {
+        val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Speak photo note or asset name…")
+        }
+        try {
+            speechLauncher.launch(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "Voice input not supported on this device", Toast.LENGTH_SHORT).show()
+        }
+    }
     val isRecording = recording != null
+
+    var timerCountdown by remember { mutableStateOf<Int?>(null) }
+    var timerJob by remember { mutableStateOf<Job?>(null) }
+    var showGhostOverlay by remember { mutableStateOf(cam.ghostOverlay) }
+    var ghostAlpha by remember { mutableFloatStateOf(0.4f) }
+
+    val currentLat = data.latitude
+    val currentLon = data.longitude
+    val siteLat = settings.siteLat
+    val siteLon = settings.siteLon
+    val siteRadius = settings.siteRadiusM
+    val siteName = settings.siteName
+
+    val geofenceDistanceM: Float? = remember(currentLat, currentLon, siteLat, siteLon) {
+        if (currentLat != null && currentLon != null && siteLat != null && siteLon != null) {
+            val results = FloatArray(1)
+            android.location.Location.distanceBetween(currentLat, currentLon, siteLat, siteLon, results)
+            results[0]
+        } else null
+    }
 
     // Find every camera on the phone.
     LaunchedEffect(Unit) {
@@ -173,17 +235,17 @@ fun CameraScreen(
         if (mode == CaptureMode.VIDEO && !micGranted) micLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
-    val photoSpec = PhotoSpec(cam.hdrPhoto, cam.photoFormat, cam.photoAspect, cam.photoResolution, cam.histogram)
+    val photoSpec = PhotoSpec(cam.hdrPhoto, cam.photoExtension, cam.photoFormat, cam.photoAspect, cam.photoResolution, cam.histogram)
     val videoSpec = VideoSpec(cam.videoRes, cam.videoAspect, cam.fps, cam.bitrate, cam.videoColor, cam.stabilization, cam.histogram)
-    val spec: Any = if (mode == CaptureMode.PHOTO) photoSpec else videoSpec
+    val spec: Any = if (mode == CaptureMode.VIDEO) videoSpec else photoSpec
 
     // Bind the chosen lens with the chosen mode and settings, and follow its zoom range.
     DisposableEffect(lenses, selected, mode, spec) {
         val lens = lenses.getOrNull(selected)
         var observer: Observer<ZoomState>? = null
         if (lens != null) {
-            val r = if (mode == CaptureMode.PHOTO) controller.bindPhoto(owner, lens, photoSpec)
-            else controller.bindVideo(owner, lens, videoSpec)
+            val r = if (mode == CaptureMode.VIDEO) controller.bindVideo(owner, lens, videoSpec)
+            else controller.bindPhoto(owner, lens, photoSpec)
             bind = r
             caps = controller.capabilities(lens)
             sensor = controller.sensorInfo
@@ -263,7 +325,7 @@ fun CameraScreen(
     }
 
     val nativeRatio = bind?.nativeRatio ?: (4f / 3f)
-    val photoCrop = mode == CaptureMode.PHOTO && cam.photoAspect.cropped && bind?.format != PhotoFormat.RAW
+    val photoCrop = mode != CaptureMode.VIDEO && cam.photoAspect.cropped && bind?.format != PhotoFormat.RAW
     val frameLongShort = if (photoCrop) cam.photoAspect.ratio else nativeRatio
 
     // Live stamp preview, drawn by the same renderer used for saving.
@@ -274,7 +336,7 @@ fun CameraScreen(
                 PhotoComposer.stampWidthFor(1080, (1080 * frameLongShort).toInt(), config.size),
                 config, data, ZonedDateTime.now(), lensLabel,
                 // In video mode this same bitmap is burned into the recording, so no placeholder hints.
-                preview = mode == CaptureMode.PHOTO,
+                preview = mode != CaptureMode.VIDEO,
             )
         }
         overlay = bmp
@@ -285,6 +347,26 @@ fun CameraScreen(
         if (lens.isFront) d0.copy(azimuthDeg = d0.azimuthDeg?.let { (it + 180f) % 360f }) else d0
     }
 
+    fun uploadLastToGoogleDrive(targetUri: Uri? = null) {
+        val uri = targetUri ?: lastUri ?: return
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = lastMime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            setPackage("com.google.android.apps.docs")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            val fallback = Intent(Intent.ACTION_SEND).apply {
+                type = lastMime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(fallback, "Upload to Google Drive / Cloud"))
+        }
+    }
+
     suspend fun saveStamped(bmp0: Bitmap, lens: LensInfo) {
         val time = ZonedDateTime.now()
         val cfg = settings.snapshot()
@@ -292,17 +374,23 @@ fun CameraScreen(
         val result = withContext(Dispatchers.Default) {
             val bmp = if (photoCrop) PhotoComposer.cropToAspect(bmp0, cam.photoAspect.ratio) else bmp0
             val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label)
-            val uri = PhotoSaver.save(context, stamped, d, time)
+            val uri = PhotoSaver.save(context, stamped, d, time, subFolder = cfg.siteName.ifBlank { null })
             val thumbW = 240
             val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
             stamped.recycle()
+            if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()
+            if (bmp0 !== bmp && bmp0 !== stamped && !bmp0.isRecycled) bmp0.recycle()
             uri to thumb
         }
         settings.nextNumber = settings.nextNumber + 1
         lastUri = result.first
         lastMime = "image/jpeg"
         lastThumb = result.second
-        if (result.first == null) Toast.makeText(context, "Couldn't save photo", Toast.LENGTH_SHORT).show()
+        if (result.first == null) {
+            Toast.makeText(context, "Couldn't save photo", Toast.LENGTH_SHORT).show()
+        } else if (cam.autoDriveUpload) {
+            uploadLastToGoogleDrive()
+        }
     }
 
     suspend fun capturePhoto(lens: LensInfo) {
@@ -327,9 +415,48 @@ fun CameraScreen(
             }
             PhotoFormat.JPEG -> {
                 val photo = controller.takePhoto()
-                val bmp = withContext(Dispatchers.Default) { PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees) }
+                var bmp = withContext(Dispatchers.Default) { PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees) }
+                if (cam.pipMode && lenses.size > 1) {
+                    val oppositeLens = lenses.firstOrNull { it.isFront != lens.isFront }
+                    if (oppositeLens != null) {
+                        busyText = "Selfie PiP…"
+                        val r = controller.bindPhoto(owner, oppositeLens, photoSpec)
+                        if (r.ok) {
+                            delay(250)
+                            try {
+                                val secondPhoto = controller.takePhoto()
+                                val secondBmp = withContext(Dispatchers.Default) { PhotoComposer.decodeCameraJpeg(secondPhoto.jpeg, secondPhoto.rotationDegrees) }
+                                val composite = withContext(Dispatchers.Default) { PhotoComposer.compositePip(bmp, secondBmp) }
+                                if (secondBmp !== composite && !secondBmp.isRecycled) secondBmp.recycle()
+                                if (bmp !== composite && !bmp.isRecycled) bmp.recycle()
+                                bmp = composite
+                            } catch (_: Exception) {}
+                            controller.bindPhoto(owner, lens, photoSpec)
+                        }
+                    }
+                }
+                if (cam.documentMode) {
+                    val enhanced = withContext(Dispatchers.Default) { PhotoComposer.applyDocumentEnhancement(bmp) }
+                    if (enhanced !== bmp && !bmp.isRecycled) bmp.recycle()
+                    bmp = enhanced
+                }
                 saveStamped(bmp, lens)
             }
+        }
+    }
+
+    suspend fun executeCapture(lens: LensInfo, count: Int) {
+        busy = true
+        try {
+            for (i in 1..count) {
+                busyText = if (count > 1) "Burst $i/$count…" else "Saving…"
+                capturePhoto(lens)
+                if (i < count) delay(300)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Capture failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        } finally {
+            busy = false
         }
     }
 
@@ -337,15 +464,203 @@ fun CameraScreen(
         val lens = lenses.getOrNull(selected) ?: return
         if (busy) return
         warnIfNoGps()
+        val timer = cam.timerSeconds
+        val burst = cam.burstCount.coerceAtLeast(1)
+        if (timer > 0) {
+            timerJob?.cancel()
+            timerJob = scope.launch {
+                for (s in timer downTo 1) {
+                    timerCountdown = s
+                    delay(1000)
+                }
+                timerCountdown = null
+                executeCapture(lens, burst)
+            }
+        } else {
+            scope.launch {
+                executeCapture(lens, burst)
+            }
+        }
+    }
+
+    fun scanBarcode() {
+        if (busy) return
         busy = true
-        busyText = "Saving…"
+        busyText = "Scanning Barcode…"
         scope.launch {
             try {
-                capturePhoto(lens)
+                val photo = controller.takePhoto()
+                val bmp = withContext(Dispatchers.Default) { PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees) }
+                val code = withContext(Dispatchers.Default) { com.geostamp.camera.stamp.BarcodeScanner.scan(bmp) }
+                bmp.recycle()
+                if (!code.isNullOrBlank()) {
+                    settings.note = "Asset: $code"
+                    Toast.makeText(context, "Scanned: $code", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "No QR or Barcode detected in frame", Toast.LENGTH_SHORT).show()
+                }
             } catch (e: Exception) {
-                Toast.makeText(context, "Capture failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Scan error: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 busy = false
+            }
+        }
+    }
+
+    fun shareLastToWhatsApp() {
+        val uri = lastUri ?: return
+        val text = buildString {
+            append("📍 GeoStamp Photo\n")
+            data.title?.let { append("🏢 Location: $it\n") }
+            if (data.latitude != null && data.longitude != null) {
+                append("🗺 GPS: ${data.latitude}, ${data.longitude}\n")
+            }
+            data.plusCode?.let { append("🌐 Plus Code: $it\n") }
+            append("⏰ Time: ${WatermarkRenderer.formatDate(config, ZonedDateTime.now())}\n")
+            if (settings.note.isNotBlank()) append("📝 Note: ${settings.note}\n")
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/jpeg"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TEXT, text)
+            setPackage("com.whatsapp")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            val fallback = Intent(Intent.ACTION_SEND).apply {
+                type = "image/jpeg"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, text)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(fallback, "Share via"))
+        }
+    }
+
+    fun scanSignboardText() {
+        if (busy) return
+        busy = true
+        busyText = "Reading Signboard Text…"
+        scope.launch {
+            try {
+                val photo = controller.takePhoto()
+                val bmp = withContext(Dispatchers.Default) { PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees) }
+                val detected = withContext(Dispatchers.Default) { com.geostamp.camera.ai.VisionAnalyzer.recognizeText(bmp) }
+                bmp.recycle()
+                if (!detected.isNullOrBlank()) {
+                    val firstLine = detected.lines().firstOrNull { it.isNotBlank() } ?: detected
+                    settings.note = firstLine.take(80)
+                    Toast.makeText(context, "Detected text: $firstLine", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "No text detected in view", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "OCR error: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun autoCaptionScene() {
+        if (busy) return
+        busy = true
+        busyText = "Generating Scene Caption…"
+        scope.launch {
+            try {
+                val photo = controller.takePhoto()
+                val bmp = withContext(Dispatchers.Default) { PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees) }
+                val caption = withContext(Dispatchers.Default) { com.geostamp.camera.ai.VisionAnalyzer.autoCaption(bmp) }
+                bmp.recycle()
+                if (!caption.isNullOrBlank()) {
+                    settings.note = caption
+                    Toast.makeText(context, "Caption: $caption", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "Could not identify scene", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Caption error: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun toggleTimelapse() {
+        if (isTimelapseActive) {
+            timelapseJob?.cancel()
+            timelapseJob = null
+            isTimelapseActive = false
+            Toast.makeText(context, "Timelapse ended. $timelapseFrameCount frames captured.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val lens = lenses.getOrNull(selected) ?: return
+        isTimelapseActive = true
+        timelapseFrameCount = 0
+        val sessionTag = "Timelapse_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss", Locale.US).format(ZonedDateTime.now())
+        val sub = if (settings.siteName.isNotBlank()) "${settings.siteName}/$sessionTag" else sessionTag
+        timelapseJob = scope.launch {
+            Toast.makeText(context, "Timelapse started (every ${cam.timelapseIntervalSec}s)", Toast.LENGTH_SHORT).show()
+            try {
+                while (isActive && isTimelapseActive) {
+                    val photo = controller.takePhoto()
+                    val rawBmp = withContext(Dispatchers.Default) {
+                        PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees, lens.isFront)
+                    }
+                    val time = ZonedDateTime.now()
+                    val cfg = settings.snapshot()
+                    val d = stampDataFor(lens)
+                    val frameUri = withContext(Dispatchers.Default) {
+                        val bmp = if (photoCrop) PhotoComposer.cropToAspect(rawBmp, cam.photoAspect.ratio) else rawBmp
+                        val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label)
+                        val uri = PhotoSaver.save(context, stamped, d, time, prefix = "Frame", subFolder = sub)
+                        val thumbW = 240
+                        val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
+                        stamped.recycle()
+                        if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()
+                        if (rawBmp !== bmp && rawBmp !== stamped && !rawBmp.isRecycled) rawBmp.recycle()
+                        uri to thumb
+                    }
+                    lastUri = frameUri.first
+                    lastMime = "image/jpeg"
+                    lastThumb = frameUri.second
+                    timelapseFrameCount++
+                    settings.nextNumber = settings.nextNumber + 1
+                    delay(cam.timelapseIntervalSec * 1000L)
+                }
+            } catch (_: CancellationException) {
+            } catch (e: Exception) {
+                Toast.makeText(context, "Timelapse stopped: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                isTimelapseActive = false
+            }
+        }
+    }
+
+    fun toggleAttendanceMode() {
+        cam.attendanceMode = !cam.attendanceMode
+        if (cam.attendanceMode) {
+            val frontIdx = lenses.indexOfFirst { it.isFront }
+            if (frontIdx >= 0) selected = frontIdx
+            settings.applyTemplate(StampTemplate.ATTENDANCE)
+            settings.note = "ATTENDANCE VERIFIED"
+            settings.setEnabled(StampField.QR_CODE, true)
+            Toast.makeText(context, "Attendance Punch Mode ON", Toast.LENGTH_SHORT).show()
+        } else {
+            val backIdx = lenses.indexOfFirst { !it.isFront }
+            if (backIdx >= 0) selected = backIdx
+            settings.applyTemplate(StampTemplate.STANDARD)
+            settings.note = "Captured by GeoStamp Camera"
+            Toast.makeText(context, "Standard Mode", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(shutterTrigger) {
+        shutterTrigger?.collect {
+            if (!busy && mode == CaptureMode.PHOTO) {
+                shoot()
             }
         }
     }
@@ -475,6 +790,25 @@ fun CameraScreen(
                         if (caps.rawJpeg) PhotoFormat.RAW_JPEG else PhotoFormat.RAW
                     } else PhotoFormat.JPEG
                 }
+                if (caps.nightExtension) {
+                    QuickChip("🌙 Night", cam.photoExtension == ExtensionModeType.NIGHT, !isRecording) {
+                        cam.photoExtension = if (cam.photoExtension == ExtensionModeType.NIGHT) ExtensionModeType.NONE else ExtensionModeType.NIGHT
+                    }
+                }
+                if (caps.bokehExtension) {
+                    QuickChip("👤 Portrait", cam.photoExtension == ExtensionModeType.BOKEH, !isRecording) {
+                        cam.photoExtension = if (cam.photoExtension == ExtensionModeType.BOKEH) ExtensionModeType.NONE else ExtensionModeType.BOKEH
+                    }
+                }
+                QuickChip("Punch In", cam.attendanceMode, !isRecording) {
+                    toggleAttendanceMode()
+                }
+                QuickChip("PiP", cam.pipMode, lenses.size > 1 && !isRecording) {
+                    cam.pipMode = !cam.pipMode
+                }
+                QuickChip("DOC", cam.documentMode, !isRecording) {
+                    cam.documentMode = !cam.documentMode
+                }
             }
             Text(
                 text = if (data.latitude != null) String.format(Locale.US, " GPS ±%.0fm", data.accuracyM ?: 0f) else " GPS…",
@@ -482,6 +816,25 @@ fun CameraScreen(
                 fontSize = 12.sp, fontFamily = FontFamily.Monospace,
                 modifier = Modifier.weight(1f),
             )
+            if (mode != CaptureMode.VIDEO) {
+                IconButton(onClick = { startVoiceNote() }, enabled = !isRecording && !busy) {
+                    Icon(Icons.Filled.Mic, contentDescription = "Voice Note Dictation", tint = Accent)
+                }
+                IconButton(onClick = { scanBarcode() }, enabled = !isRecording && !busy) {
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan Asset QR", tint = Accent)
+                }
+                IconButton(onClick = { scanSignboardText() }, enabled = !isRecording && !busy) {
+                    Icon(Icons.Filled.TextFields, contentDescription = "Read Signboard Text", tint = Accent)
+                }
+                IconButton(onClick = { autoCaptionScene() }, enabled = !isRecording && !busy) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = "AI Scene Caption", tint = Accent)
+                }
+                if (lastThumb != null) {
+                    IconButton(onClick = { showGhostOverlay = !showGhostOverlay }) {
+                        Icon(Icons.Filled.Layers, contentDescription = "Ghost Angle Overlay", tint = if (showGhostOverlay) Accent else Color.White)
+                    }
+                }
+            }
             IconButton(onClick = { repo.refreshAll() }) {
                 Icon(Icons.Filled.Refresh, contentDescription = "Refresh location data", tint = Color.White)
             }
@@ -490,6 +843,56 @@ fun CameraScreen(
             }
             IconButton(onClick = onOpenSettings, enabled = !isRecording) {
                 Icon(Icons.Filled.Settings, contentDescription = "Stamp settings", tint = Color.White)
+            }
+        }
+
+        // ---- Geofence status strip ----
+        if (geofenceDistanceM != null) {
+            val outside = geofenceDistanceM > siteRadius
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (outside) Color(0xCCB71C1C) else Color(0x991B5E20))
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = if (outside) "⚠️ Outside ${siteName.ifBlank { "Site" }}: ${geofenceDistanceM.toInt()}m (Limit ${siteRadius.toInt()}m)"
+                    else "✅ In Site Geofence (${geofenceDistanceM.toInt()}m)",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = "PIN HERE",
+                    color = Accent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable {
+                        if (currentLat != null && currentLon != null) {
+                            settings.siteLat = currentLat
+                            settings.siteLon = currentLon
+                            Toast.makeText(context, "Site pin set to current location", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
+            }
+        } else if (settings.siteName.isNotBlank() && currentLat != null && currentLon != null && settings.siteLat == null) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0x9937474F))
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("📍 Site: ${settings.siteName} (No pin)", color = Color.White, fontSize = 12.sp)
+                Text("SET PIN", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
+                    settings.siteLat = currentLat
+                    settings.siteLon = currentLon
+                    Toast.makeText(context, "Site pin set to current location", Toast.LENGTH_SHORT).show()
+                })
             }
         }
 
@@ -543,11 +946,41 @@ fun CameraScreen(
                     },
                 )
 
+                if (showGhostOverlay && lastThumb != null && mode == CaptureMode.PHOTO) {
+                    Image(
+                        bitmap = lastThumb!!.asImageBitmap(),
+                        contentDescription = "Ghost alignment overlay",
+                        contentScale = ContentScale.Crop,
+                        alpha = ghostAlpha,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
                 GridOverlay(cam.grid)
                 if (photoCrop) FrameMask(1f / cam.photoAspect.ratio, solid = true)
                 if (cam.frameGuide != FrameGuide.OFF) {
                     val r = cam.frameGuide.ratio
                     FrameMask(if (landscape) 1f / r else r, solid = false)
+                }
+
+                if (cam.documentMode) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(28.dp)
+                            .border(2.dp, Color(0xFF81C784), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
+                        Text(
+                            "📄 ALIGN RECEIPT / DOCUMENT",
+                            color = Color(0xFF81C784),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(Color(0x99000000), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
                 }
 
                 // Stamp preview, inside the crop frame when a cropped photo format is chosen.
@@ -565,7 +998,20 @@ fun CameraScreen(
                                 contentDescription = "Stamp preview",
                                 contentScale = ContentScale.FillWidth,
                                 modifier = Modifier
-                                    .align(if (config.position == StampPosition.BOTTOM) Alignment.BottomCenter else Alignment.TopCenter)
+                                    .align(
+                                        when (config.position) {
+                                            StampPosition.BOTTOM -> Alignment.BottomCenter
+                                            StampPosition.TOP -> Alignment.TopCenter
+                                            StampPosition.CENTER -> Alignment.Center
+                                        }
+                                    )
+                                    .clickable {
+                                        settings.position = when (settings.position) {
+                                            StampPosition.BOTTOM -> StampPosition.TOP
+                                            StampPosition.TOP -> StampPosition.CENTER
+                                            StampPosition.CENTER -> StampPosition.BOTTOM
+                                        }
+                                    }
                                     .padding(vertical = margin)
                                     .width(maxWidth * frac),
                             )
@@ -578,6 +1024,27 @@ fun CameraScreen(
                     HistogramView(histogram, Modifier.align(Alignment.TopStart).padding(8.dp))
                 }
                 if (isRecording) RecTimer(recSeconds, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+                if (isTimelapseActive) {
+                    Row(
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xCC000000))
+                            .border(1.dp, Accent, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFE53935)))
+                        Text(
+                            "TIMELAPSE REC · Frame #$timelapseFrameCount (${cam.timelapseIntervalSec}s)",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
                 if (mode == CaptureMode.VIDEO && bind?.ok == true && bind?.stampOnVideo == false) {
                     Text(
                         "Stamp not burned into video on this phone",
@@ -588,6 +1055,34 @@ fun CameraScreen(
                             .background(Color(0x99B71C1C), RoundedCornerShape(4.dp))
                             .padding(4.dp),
                     )
+                }
+
+                if (timerCountdown != null) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color(0x77000000)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "$timerCountdown",
+                                color = Accent,
+                                fontSize = 96.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    timerJob?.cancel()
+                                    timerCountdown = null
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                            ) {
+                                Text("Cancel", color = Color.White)
+                            }
+                        }
+                    }
                 }
 
                 if (busy) {
@@ -708,26 +1203,36 @@ fun CameraScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Box(
-                Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0x33FFFFFF))
-                    .clickable(enabled = lastUri != null && !isRecording) {
-                        lastUri?.let { uri ->
-                            val intent = Intent(Intent.ACTION_VIEW)
-                                .setDataAndType(uri, lastMime)
-                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            runCatching { context.startActivity(intent) }
-                        }
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                val t = lastThumb
-                if (t != null) {
-                    Image(t.asImageBitmap(), "Last capture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                } else if (lastUri != null) {
-                    Text(if (lastMime.startsWith("video")) "VID" else "RAW", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0x33FFFFFF))
+                        .clickable(enabled = lastUri != null && !isRecording) {
+                            lastUri?.let { uri ->
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(uri, lastMime)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                runCatching { context.startActivity(intent) }
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val t = lastThumb
+                    if (t != null) {
+                        Image(t.asImageBitmap(), "Last capture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    } else if (lastUri != null) {
+                        Text(if (lastMime.startsWith("video")) "VID" else "RAW", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+                if (lastUri != null && !isRecording && !isTimelapseActive) {
+                    IconButton(onClick = { shareLastToWhatsApp() }) {
+                        Icon(Icons.Filled.Share, "Share via WhatsApp", tint = Color(0xFF25D366))
+                    }
+                    IconButton(onClick = { uploadLastToGoogleDrive() }) {
+                        Icon(Icons.Filled.CloudUpload, "Upload to Google Drive", tint = Color(0xFF4285F4))
+                    }
                 }
             }
 
@@ -740,7 +1245,28 @@ fun CameraScreen(
                         .clip(CircleShape)
                         .background(if (busy) Color.Gray else Color.White)
                         .clickable(enabled = !busy && bind?.ok == true) { shoot() },
-                )
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (cam.attendanceMode) {
+                        Text("PUNCH", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    }
+                }
+            } else if (mode == CaptureMode.TIMELAPSE) {
+                Box(
+                    Modifier
+                        .size(76.dp)
+                        .border(BorderStroke(4.dp, Accent), CircleShape)
+                        .clip(CircleShape)
+                        .clickable(enabled = bind?.ok == true) { toggleTimelapse() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .size(if (isTimelapseActive) 28.dp else 58.dp)
+                            .clip(if (isTimelapseActive) RoundedCornerShape(6.dp) else CircleShape)
+                            .background(Accent),
+                    )
+                }
             } else {
                 Box(
                     Modifier
@@ -760,14 +1286,56 @@ fun CameraScreen(
             }
 
             if (mode == CaptureMode.PHOTO) {
-                Column(
-                    Modifier
-                        .width(64.dp)
-                        .clickable(enabled = !busy && lenses.size > 1) { shootAllLenses() },
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        QuickChip(
+                            if (cam.timerSeconds > 0) "⏱${cam.timerSeconds}s" else "⏱Off",
+                            cam.timerSeconds > 0,
+                            !isRecording && !busy,
+                        ) {
+                            cam.timerSeconds = when (cam.timerSeconds) {
+                                0 -> 3
+                                3 -> 5
+                                5 -> 10
+                                else -> 0
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        QuickChip(
+                            "💥${cam.burstCount}x",
+                            cam.burstCount > 1,
+                            !isRecording && !busy,
+                        ) {
+                            cam.burstCount = when (cam.burstCount) {
+                                1 -> 3
+                                3 -> 5
+                                else -> 1
+                            }
+                        }
+                    }
+                    Column(
+                        Modifier
+                            .width(52.dp)
+                            .clickable(enabled = !busy && lenses.size > 1) { shootAllLenses() },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(Icons.Filled.Collections, contentDescription = "Capture from all cameras", tint = Color.White)
+                        Text("All", color = Color.White, fontSize = 11.sp)
+                    }
+                }
+            } else if (mode == CaptureMode.TIMELAPSE) {
+                QuickChip(
+                    "⏱ ${cam.timelapseIntervalSec}s",
+                    true,
+                    !isTimelapseActive,
                 ) {
-                    Icon(Icons.Filled.Collections, contentDescription = "Capture from all cameras", tint = Color.White)
-                    Text("All lenses", color = Color.White, fontSize = 11.sp)
+                    cam.timelapseIntervalSec = when (cam.timelapseIntervalSec) {
+                        1 -> 2
+                        2 -> 5
+                        5 -> 10
+                        10 -> 30
+                        else -> 1
+                    }
                 }
             } else {
                 Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {

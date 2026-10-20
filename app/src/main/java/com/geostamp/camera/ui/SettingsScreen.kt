@@ -32,12 +32,16 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -59,6 +63,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.geostamp.camera.data.CameraSettings
 import com.geostamp.camera.data.DateFormat
 import com.geostamp.camera.data.FontStyle
 import com.geostamp.camera.data.Labeled
@@ -69,9 +74,11 @@ import com.geostamp.camera.data.StampColor
 import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampField
 import com.geostamp.camera.data.StampGroup
+import com.geostamp.camera.data.StampLanguage
 import com.geostamp.camera.data.StampPosition
 import com.geostamp.camera.data.StampSettings
 import com.geostamp.camera.data.StampSize
+import com.geostamp.camera.data.StampTemplate
 import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.WatermarkRenderer
 import kotlinx.coroutines.Dispatchers
@@ -83,7 +90,12 @@ private val RowText = Color(0xFFEDEDED)
 private val SubText = Color(0xFF9E9E9E)
 
 @Composable
-fun SettingsScreen(settings: StampSettings, repo: StampDataRepository, onBack: () -> Unit) {
+fun SettingsScreen(
+    settings: StampSettings,
+    repo: StampDataRepository,
+    cam: CameraSettings? = null,
+    onBack: () -> Unit,
+) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val data by repo.data.collectAsState()
@@ -154,6 +166,9 @@ fun SettingsScreen(settings: StampSettings, repo: StampDataRepository, onBack: (
                         StampField.MAP -> if (settings.isEnabled(field)) {
                             ChoiceRow("Map Type", settings.mapType, MapType.entries) { settings.mapType = it }
                         }
+                        StampField.LAT_LONG -> if (settings.isEnabled(field)) {
+                            ChoiceRow("Coordinate format", settings.coordinateFormat, com.geostamp.camera.data.CoordinateFormat.entries) { settings.coordinateFormat = it }
+                        }
                         StampField.DATE_TIME -> if (settings.isEnabled(field)) {
                             ChoiceRow("Date format", settings.dateFormat, DateFormat.entries) { settings.dateFormat = it }
                         }
@@ -178,11 +193,22 @@ fun SettingsScreen(settings: StampSettings, repo: StampDataRepository, onBack: (
                         StampField.NOTE -> if (settings.isEnabled(field)) {
                             InlineField("Note / #hashtag", settings.note) { settings.note = it }
                         }
+                        StampField.PROJECT -> if (settings.isEnabled(field)) {
+                            InlineField("Project / Site name", settings.siteName) { settings.siteName = it }
+                        }
                         StampField.PERSON_NAME -> if (settings.isEnabled(field)) {
                             InlineField("Person name", settings.personName) { settings.personName = it }
                         }
                         StampField.PHONE -> if (settings.isEnabled(field)) {
                             InlineField("Contact number", settings.phone, KeyboardType.Phone) { settings.phone = it }
+                        }
+                        StampField.CUSTOM_1 -> if (settings.isEnabled(field)) {
+                            InlineField("Field 1 Label", settings.custom1Label) { settings.custom1Label = it }
+                            InlineField("Field 1 Value", settings.custom1Value) { settings.custom1Value = it }
+                        }
+                        StampField.CUSTOM_2 -> if (settings.isEnabled(field)) {
+                            InlineField("Field 2 Label", settings.custom2Label) { settings.custom2Label = it }
+                            InlineField("Field 2 Value", settings.custom2Value) { settings.custom2Value = it }
                         }
                         else -> Unit
                     }
@@ -192,7 +218,34 @@ fun SettingsScreen(settings: StampSettings, repo: StampDataRepository, onBack: (
 
             item(key = "stamp_settings") {
               Column {
-                SectionHeader("Stamp Settings")
+                SectionHeader("Stamp Settings & Localization")
+                ChoiceRow("Preset Template", StampTemplate.STANDARD, StampTemplate.entries) { settings.applyTemplate(it) }
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    Text("Save / Load Custom Templates", color = RowText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        (1..3).forEach { slot ->
+                            val has = settings.hasCustomTemplate(slot)
+                            OutlinedButton(
+                                onClick = {
+                                    if (has) {
+                                        settings.loadCustomTemplate(slot)
+                                        Toast.makeText(context, "Loaded Template $slot", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        settings.saveCustomTemplate(slot, "Template $slot")
+                                        Toast.makeText(context, "Saved current setup to Template $slot", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = if (has) Accent else Color.White,
+                                ),
+                            ) {
+                                Text(if (has) "Load $slot" else "Save $slot", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+                ChoiceRow("Stamp Language", settings.language, StampLanguage.entries) { settings.language = it }
                 ChoiceRow("Font Style", settings.font, FontStyle.entries) { settings.font = it }
                 ChoiceRow("Stamp Color", settings.color, StampColor.entries) { settings.color = it }
                 ChoiceRow("Background", settings.background, StampBackground.entries) { settings.background = it }
@@ -209,6 +262,25 @@ fun SettingsScreen(settings: StampSettings, repo: StampDataRepository, onBack: (
                         onValueChange = { settings.mapScalePercent = it.toInt() },
                         valueRange = 40f..100f,
                     )
+                }
+                if (cam != null) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Auto-Upload to Google Drive", color = RowText, fontSize = 16.sp)
+                            Text("Prompts Google Drive upload after every capture", color = SubText, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = cam.autoDriveUpload,
+                            onCheckedChange = { cam.autoDriveUpload = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
+                        )
+                    }
                 }
                 Text(
                     "Map tiles © Esri and © OpenStreetMap contributors. Weather by Open-Meteo.com.",
@@ -246,13 +318,19 @@ private fun valueFor(field: StampField, settings: StampSettings, d: com.geostamp
         StampField.TIME_ZONE -> "GMT " + java.time.format.DateTimeFormatter.ofPattern("xxx").format(ZonedDateTime.now())
         StampField.NUMBERING -> settings.nextNumber.toString()
         StampField.LOGO -> if (settings.hasCustomLogo) "Custom" else "Default"
+        StampField.QR_CODE -> "Signature"
+        StampField.PROJECT -> settings.siteName.ifBlank { "-" }
         StampField.NOTE -> settings.note.ifBlank { "-" }
         StampField.PERSON_NAME -> settings.personName.ifBlank { "-" }
         StampField.PHONE -> settings.phone.ifBlank { "-" }
+        StampField.CUSTOM_1 -> "${settings.custom1Label}: ${settings.custom1Value.ifBlank { "-" }}"
+        StampField.CUSTOM_2 -> "${settings.custom2Label}: ${settings.custom2Value.ifBlank { "-" }}"
         StampField.TEMPERATURE -> f(d.temperatureC, "%.2f° C")
         StampField.WIND -> f(d.windKmh, "%.2f km/h")
         StampField.HUMIDITY -> d.humidity?.let { "$it%" } ?: "-"
         StampField.PRESSURE -> f(d.pressureHpa, "%.0f hpa")
+        StampField.AQI -> d.aqi?.toString() ?: "-"
+        StampField.SUN_TIMES -> if (d.sunrise != null && d.sunset != null) "${d.sunrise} / ${d.sunset}" else "-"
         StampField.COMPASS -> d.azimuthDeg?.let { String.format(java.util.Locale.US, "%.0f° %s", it, WatermarkRenderer.direction(it)) } ?: "-"
         StampField.MAGNETIC -> d.magneticUt?.let { String.format(java.util.Locale.US, "%.2f µT", it) } ?: "-"
         StampField.SOUND_LEVEL -> d.soundDb?.let { String.format(java.util.Locale.US, "%.1f dB", it) } ?: "-"
