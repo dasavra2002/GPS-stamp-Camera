@@ -50,16 +50,19 @@ import com.geostamp.camera.data.CameraSettings
 import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampField
 import com.geostamp.camera.data.StampSettings
+import com.geostamp.camera.data.VolumeButtonAction
 import com.geostamp.camera.ui.Accent
 import com.geostamp.camera.ui.CameraScreen
 import com.geostamp.camera.ui.GalleryScreen
 import com.geostamp.camera.ui.GalleryState
 import com.geostamp.camera.ui.SettingsScreen
 
+enum class VolumeKeyEvent { UP, DOWN }
+
 private enum class Screen { CAMERA, SETTINGS, GALLERY }
 
 class MainActivity : ComponentActivity() {
-    private val shutterTrigger = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val volumeKeyTrigger = kotlinx.coroutines.flow.MutableSharedFlow<VolumeKeyEvent>(extraBufferCapacity = 1)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,8 +71,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
-        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) {
-            shutterTrigger.tryEmit(Unit)
+        val cam = CameraSettings(applicationContext)
+        if (cam.volumeButtonAction == VolumeButtonAction.VOLUME) {
+            return super.onKeyDown(keyCode, event)
+        }
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) {
+            volumeKeyTrigger.tryEmit(VolumeKeyEvent.UP)
+            return true
+        }
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
+            volumeKeyTrigger.tryEmit(VolumeKeyEvent.DOWN)
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -83,7 +94,7 @@ class MainActivity : ComponentActivity() {
                         .fillMaxSize()
                         .background(Color.Black)
                         .safeDrawingPadding(),
-                ) { App(shutterTrigger = shutterTrigger) }
+                ) { App(volumeKeyTrigger = volumeKeyTrigger) }
             }
         }
     }
@@ -100,7 +111,7 @@ private fun startupPermissions(): Array<String> {
 }
 
 @Composable
-private fun App(shutterTrigger: kotlinx.coroutines.flow.SharedFlow<Unit>? = null) {
+private fun App(volumeKeyTrigger: kotlinx.coroutines.flow.SharedFlow<VolumeKeyEvent>? = null) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -171,7 +182,7 @@ private fun App(shutterTrigger: kotlinx.coroutines.flow.SharedFlow<Unit>? = null
             cam = cameraSettings,
             repo = repo,
             controller = controller,
-            shutterTrigger = shutterTrigger,
+            volumeKeyTrigger = volumeKeyTrigger,
             onOpenSettings = { screen = Screen.SETTINGS },
             onOpenGallery = { screen = Screen.GALLERY },
         )

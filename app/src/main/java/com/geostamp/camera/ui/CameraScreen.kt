@@ -58,6 +58,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -72,6 +74,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -91,6 +94,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.geostamp.camera.VolumeKeyEvent
 import com.geostamp.camera.camera.BindResult
 import com.geostamp.camera.camera.CameraController
 import com.geostamp.camera.camera.CaptureMode
@@ -100,14 +104,17 @@ import com.geostamp.camera.camera.ManualState
 import com.geostamp.camera.camera.PhotoSpec
 import com.geostamp.camera.camera.SensorInfo
 import com.geostamp.camera.camera.VideoSpec
+import com.geostamp.camera.camera.WbMode
 import com.geostamp.camera.data.CameraSettings
 import com.geostamp.camera.data.FrameGuide
 import com.geostamp.camera.data.PhotoFormat
+import com.geostamp.camera.data.SnapshotMode
 import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampField
 import com.geostamp.camera.data.ExtensionModeType
 import com.geostamp.camera.data.StampPosition
 import com.geostamp.camera.data.StampSettings
+import com.geostamp.camera.data.VolumeButtonAction
 import com.geostamp.camera.data.StampTemplate
 import com.geostamp.camera.data.VideoColor
 import com.geostamp.camera.data.VideoRes
@@ -134,7 +141,7 @@ fun CameraScreen(
     cam: CameraSettings,
     repo: StampDataRepository,
     controller: CameraController,
-    shutterTrigger: kotlinx.coroutines.flow.SharedFlow<Unit>? = null,
+    volumeKeyTrigger: kotlinx.coroutines.flow.SharedFlow<VolumeKeyEvent>? = null,
     onOpenSettings: () -> Unit,
     onOpenGallery: () -> Unit,
 ) {
@@ -144,12 +151,23 @@ fun CameraScreen(
     val data by repo.data.collectAsState()
     val readout by controller.readout.collectAsState()
     val histogram by controller.histogram.collectAsState()
+    val focusPeakingBmp by controller.focusPeakingBitmap.collectAsState()
+    val exposureVerificationBmp by controller.exposureVerificationBitmap.collectAsState()
     val config = settings.snapshot()
     val manual = remember { ManualState() }
+    val taggedMoments = remember { mutableStateListOf<Long>() }
 
     var lenses by remember { mutableStateOf<List<LensInfo>>(emptyList()) }
-    var selected by remember { mutableIntStateOf(0) }
-    var mode by remember { mutableStateOf(CaptureMode.PHOTO) }
+    var selected by remember {
+        mutableIntStateOf(if (cam.preservePortraitFocalLength) cam.savedLensIndex else 0)
+    }
+    var mode by remember {
+        mutableStateOf(
+            if (cam.preserveCameraMode) {
+                runCatching { CaptureMode.valueOf(cam.savedCameraMode) }.getOrDefault(CaptureMode.PHOTO)
+            } else CaptureMode.PHOTO
+        )
+    }
     var bind by remember { mutableStateOf<BindResult?>(null) }
     var caps by remember { mutableStateOf(LensCaps()) }
     var sensor by remember { mutableStateOf(SensorInfo()) }
@@ -231,13 +249,76 @@ fun CameraScreen(
         }
     }
 
+    // Preserve settings persistence and restoration
+    LaunchedEffect(mode) {
+        if (cam.preserveCameraMode) {
+            cam.savedCameraMode = mode.name
+        }
+    }
+
+    LaunchedEffect(selected) {
+        if (cam.preservePortraitFocalLength) {
+            cam.savedLensIndex = selected
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (cam.preserveExposureCompensation) {
+            manual.ev = cam.savedEv
+        }
+        if (cam.preserveParameters) {
+            manual.iso = if (cam.savedIso >= 0) cam.savedIso else null
+            manual.shutterNs = if (cam.savedShutterNs > 0) cam.savedShutterNs else null
+            manual.wb = runCatching { WbMode.valueOf(cam.savedWb) }.getOrDefault(WbMode.AUTO)
+            manual.kelvin = cam.savedKelvin
+            manual.focusDiopters = if (cam.savedFocusDiopters >= 0f) cam.savedFocusDiopters else null
+        }
+    }
+
+    LaunchedEffect(manual.ev) {
+        if (cam.preserveExposureCompensation) {
+            cam.savedEv = manual.ev
+        }
+    }
+
+    LaunchedEffect(manual.iso, manual.shutterNs, manual.wb, manual.kelvin, manual.focusDiopters) {
+        if (cam.preserveParameters) {
+            cam.savedIso = manual.iso ?: -1
+            cam.savedShutterNs = manual.shutterNs ?: -1L
+            cam.savedWb = manual.wb.name
+            cam.savedKelvin = manual.kelvin
+            cam.savedFocusDiopters = manual.focusDiopters ?: -1f
+        }
+    }
+
     // Ask for the microphone the first time video mode is opened (videos record silently without it).
     LaunchedEffect(mode) {
         if (mode == CaptureMode.VIDEO && !micGranted) micLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
-    val photoSpec = PhotoSpec(cam.hdrPhoto, cam.photoExtension, cam.photoFormat, cam.photoAspect, cam.photoResolution, cam.histogram)
-    val videoSpec = VideoSpec(cam.videoRes, cam.videoAspect, cam.fps, cam.bitrate, cam.videoColor, cam.stabilization, cam.histogram)
+    val photoSpec = PhotoSpec(
+        hdr = cam.hdrPhoto,
+        extension = cam.photoExtension,
+        format = cam.photoFormat,
+        aspect = cam.photoAspect,
+        resolution = cam.photoResolution,
+        histogram = cam.histogram,
+        focusPeaking = cam.focusPeaking,
+        exposureVerification = cam.exposureVerification,
+    )
+    val videoSpec = VideoSpec(
+        res = cam.videoRes,
+        aspect = cam.videoAspect,
+        fps = cam.fps,
+        bitrate = cam.bitrate,
+        color = cam.videoColor,
+        codec = cam.videoCodec,
+        autoFrameRate = cam.autoFrameRate,
+        stabilization = cam.stabilization,
+        histogram = cam.histogram,
+        focusPeaking = cam.focusPeaking,
+        exposureVerification = cam.exposureVerification,
+    )
     val spec: Any = if (mode == CaptureMode.VIDEO) videoSpec else photoSpec
 
     // Bind the chosen lens with the chosen mode and settings, and follow its zoom range.
@@ -672,10 +753,97 @@ fun CameraScreen(
         }
     }
 
-    LaunchedEffect(shutterTrigger) {
-        shutterTrigger?.collect {
-            if (!busy && mode == CaptureMode.PHOTO) {
-                shoot()
+    fun toggleRecording() {
+        recording?.let {
+            it.stop()
+            return
+        }
+        if (!controller.isVideoReady) return
+        warnIfNoGps()
+        val r = controller.startRecording(repo.lastLocation, micGranted) { event ->
+            when (event) {
+                is VideoRecordEvent.Status -> recSeconds = event.recordingStats.recordedDurationNanos / 1_000_000_000L
+                is VideoRecordEvent.Finalize -> {
+                    recording = null
+                    recSeconds = 0
+                    val uri = event.outputResults.outputUri
+                    if (uri != Uri.EMPTY) {
+                        settings.nextNumber = settings.nextNumber + 1
+                        lastUri = uri
+                        lastMime = "video/mp4"
+                        scope.launch {
+                            lastThumb = withContext(Dispatchers.IO) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    runCatching { context.contentResolver.loadThumbnail(uri, Size(240, 240), null) }.getOrNull()
+                                } else null
+                            }
+                        }
+                        if (taggedMoments.isNotEmpty()) {
+                            val tagsList = taggedMoments.toList()
+                            scope.launch(Dispatchers.IO) {
+                                runCatching {
+                                    val tagJson = org.json.JSONArray().apply {
+                                        tagsList.forEach { put(it) }
+                                    }.toString()
+                                    val tagFile = File(context.getExternalFilesDir(null), "GeoStamp_Video_${System.currentTimeMillis()}.tags.json")
+                                    tagFile.writeText(tagJson)
+                                }
+                            }
+                            taggedMoments.clear()
+                        }
+                        Toast.makeText(context, "Video saved to Movies/GeoStamp", Toast.LENGTH_SHORT).show()
+                    } else {
+                        taggedMoments.clear()
+                        Toast.makeText(context, "Recording failed (error ${event.error})", Toast.LENGTH_LONG).show()
+                    }
+                }
+                else -> Unit
+            }
+        }
+        recording = r
+        if (r == null) Toast.makeText(context, "Video isn't ready", Toast.LENGTH_SHORT).show()
+    }
+
+    LaunchedEffect(volumeKeyTrigger) {
+        volumeKeyTrigger?.collect { event ->
+            if (busy) return@collect
+            when (cam.volumeButtonAction) {
+                VolumeButtonAction.SHUTTER -> {
+                    when (mode) {
+                        CaptureMode.PHOTO -> shoot()
+                        CaptureMode.VIDEO -> toggleRecording()
+                        CaptureMode.TIMELAPSE -> toggleTimelapse()
+                    }
+                }
+                VolumeButtonAction.TIMER_2S -> {
+                    if (mode == CaptureMode.PHOTO) {
+                        timerJob?.cancel()
+                        timerJob = scope.launch {
+                            for (s in 2 downTo 1) {
+                                timerCountdown = s
+                                delay(1000)
+                            }
+                            timerCountdown = null
+                            val lens = lenses.getOrNull(selected) ?: return@launch
+                            executeCapture(lens, cam.burstCount.coerceAtLeast(1))
+                        }
+                    } else if (mode == CaptureMode.VIDEO) {
+                        toggleRecording()
+                    }
+                }
+                VolumeButtonAction.ZOOM -> {
+                    val zs = controller.camera?.cameraInfo?.zoomState?.value ?: return@collect
+                    val step = 0.25f
+                    val nextZoom = if (event == VolumeKeyEvent.UP) {
+                        (zs.zoomRatio + step).coerceIn(zs.minZoomRatio, zs.maxZoomRatio)
+                    } else {
+                        (zs.zoomRatio - step).coerceIn(zs.minZoomRatio, zs.maxZoomRatio)
+                    }
+                    controller.setZoomRatio(nextZoom)
+                }
+                VolumeButtonAction.VOLUME -> {
+                    // Passed through to system in MainActivity
+                }
             }
         }
     }
@@ -707,43 +875,6 @@ fun CameraScreen(
                 Toast.makeText(context, "Saved $saved photo(s) from ${lenses.size} cameras", Toast.LENGTH_LONG).show()
             }
         }
-    }
-
-    fun toggleRecording() {
-        recording?.let {
-            it.stop()
-            return
-        }
-        if (!controller.isVideoReady) return
-        warnIfNoGps()
-        val r = controller.startRecording(repo.lastLocation, micGranted) { event ->
-            when (event) {
-                is VideoRecordEvent.Status -> recSeconds = event.recordingStats.recordedDurationNanos / 1_000_000_000L
-                is VideoRecordEvent.Finalize -> {
-                    recording = null
-                    recSeconds = 0
-                    val uri = event.outputResults.outputUri
-                    if (uri != Uri.EMPTY) {
-                        settings.nextNumber = settings.nextNumber + 1
-                        lastUri = uri
-                        lastMime = "video/mp4"
-                        scope.launch {
-                            lastThumb = withContext(Dispatchers.IO) {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                    runCatching { context.contentResolver.loadThumbnail(uri, Size(240, 240), null) }.getOrNull()
-                                } else null
-                            }
-                        }
-                        Toast.makeText(context, "Video saved to Movies/GeoStamp", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "Recording failed (error ${event.error})", Toast.LENGTH_LONG).show()
-                    }
-                }
-                else -> Unit
-            }
-        }
-        recording = r
-        if (r == null) Toast.makeText(context, "Video isn't ready", Toast.LENGTH_SHORT).show()
     }
 
     val formatText = if (mode == CaptureMode.PHOTO) {
@@ -953,13 +1084,38 @@ fun CameraScreen(
                                 scaleDetector.onTouchEvent(event)
                                 if (event.action == MotionEvent.ACTION_UP && !scaleDetector.isInProgress) {
                                     val point = (view as PreviewView).meteringPointFactory.createPoint(event.x, event.y)
-                                    controller.focusAt(point)
+                                    if (cam.motionTrackingFocus) {
+                                        controller.startFocusTracking(point)
+                                        Toast.makeText(context, "Motion tracking focus locked", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        controller.focusAt(point)
+                                    }
                                 }
                                 true
                             }
                         }
                     },
                 )
+
+                if (cam.focusPeaking && focusPeakingBmp != null) {
+                    Image(
+                        bitmap = focusPeakingBmp!!.asImageBitmap(),
+                        contentDescription = "Focus Peaking",
+                        contentScale = ContentScale.FillBounds,
+                        alpha = 0.9f,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                if (cam.exposureVerification && exposureVerificationBmp != null) {
+                    Image(
+                        bitmap = exposureVerificationBmp!!.asImageBitmap(),
+                        contentDescription = "Exposure Verification",
+                        contentScale = ContentScale.FillBounds,
+                        alpha = 0.75f,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
 
                 if (showGhostOverlay && lastThumb != null && mode == CaptureMode.PHOTO) {
                     Image(
@@ -1038,7 +1194,23 @@ fun CameraScreen(
                 if (cam.histogram) {
                     HistogramView(histogram, Modifier.align(Alignment.TopStart).padding(8.dp))
                 }
-                if (isRecording) RecTimer(recSeconds, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+                if (isRecording) {
+                    Row(
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        RecTimer(recSeconds)
+                        if (cam.allowVideoTagging) {
+                            QuickChip("🏷 Tag (${taggedMoments.size})", on = true, enabled = true) {
+                                taggedMoments.add(recSeconds)
+                                Toast.makeText(context, "Tag marked at ${recSeconds}s", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
                 if (isTimelapseActive) {
                     Row(
                         Modifier
@@ -1283,20 +1455,67 @@ fun CameraScreen(
                     )
                 }
             } else {
-                Box(
-                    Modifier
-                        .size(76.dp)
-                        .border(BorderStroke(4.dp, Color.White), CircleShape)
-                        .clip(CircleShape)
-                        .clickable(enabled = bind?.ok == true) { toggleRecording() },
-                    contentAlignment = Alignment.Center,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Box(
                         Modifier
-                            .size(if (isRecording) 28.dp else 58.dp)
-                            .clip(if (isRecording) RoundedCornerShape(6.dp) else CircleShape)
-                            .background(Color(0xFFE53935)),
-                    )
+                            .size(76.dp)
+                            .border(BorderStroke(4.dp, Color.White), CircleShape)
+                            .clip(CircleShape)
+                            .clickable(enabled = bind?.ok == true) { toggleRecording() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(if (isRecording) 28.dp else 58.dp)
+                                .clip(if (isRecording) RoundedCornerShape(6.dp) else CircleShape)
+                                .background(Color(0xFFE53935)),
+                        )
+                    }
+
+                    if (isRecording) {
+                        // Snapshot while recording button
+                        Box(
+                            Modifier
+                                .size(50.dp)
+                                .border(BorderStroke(2.dp, Color.White), CircleShape)
+                                .clip(CircleShape)
+                                .background(Color(0x55FFFFFF))
+                                .clickable(enabled = !busy) {
+                                    scope.launch {
+                                        val lens = lenses.getOrNull(selected) ?: return@launch
+                                        busy = true
+                                        busyText = if (cam.snapshotMode == SnapshotMode.LIVE_MOMENTS) "Live Moments…" else "Snapshot…"
+                                        try {
+                                            val count = if (cam.snapshotMode == SnapshotMode.LIVE_MOMENTS) 3 else 1
+                                            for (i in 1..count) {
+                                                val photo = controller.takePhoto()
+                                                val bmp = withContext(Dispatchers.Default) {
+                                                    PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees)
+                                                }
+                                                saveStamped(bmp, lens)
+                                                if (i < count) delay(200)
+                                            }
+                                            Toast.makeText(context, "Snapshot saved", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Snapshot failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        } finally {
+                                            busy = false
+                                        }
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.CameraAlt,
+                                contentDescription = "Take Photo While Recording",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
                 }
             }
 

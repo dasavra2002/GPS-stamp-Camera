@@ -75,6 +75,23 @@ enum class FrameGuide(override val label: String, val ratio: Float) : Labeled {
     R9_16("9:16", 9f / 16f),
 }
 
+enum class VolumeButtonAction(override val label: String) : Labeled {
+    SHUTTER("Shutter"),
+    TIMER_2S("Timer (2s)"),
+    ZOOM("Zoom"),
+    VOLUME("Volume"),
+}
+
+enum class VideoCodec(override val label: String, val mimeType: String) : Labeled {
+    H264("H.264 (High compatibility)", "video/avc"),
+    HEVC("HEVC (High efficiency)", "video/hevc"),
+}
+
+enum class SnapshotMode(override val label: String) : Labeled {
+    REGULAR("Regular photos"),
+    LIVE_MOMENTS("Live Moments"),
+}
+
 /** Pro camera options, remembered between launches. */
 class CameraSettings(context: Context) {
     private val prefs = context.getSharedPreferences("camera_settings", Context.MODE_PRIVATE)
@@ -101,13 +118,44 @@ class CameraSettings(context: Context) {
     var fps by intPref("fps", 30)
     var bitrate by enumPref("bitrate", Bitrate.AUTO, Bitrate.entries)
     var videoColor by enumPref("video_color", VideoColor.SDR, VideoColor.entries)
+    var videoCodec by enumPref("video_codec", VideoCodec.H264, VideoCodec.entries)
     var stabilization by boolPref("stabilization", true)
+    var snapshotMode by enumPref("snapshot_mode", SnapshotMode.REGULAR, SnapshotMode.entries)
+    var autoFrameRate by boolPref("auto_frame_rate", false)
+    var allowVideoTagging by boolPref("allow_video_tagging", true)
+    var motionTrackingFocus by boolPref("motion_tracking_focus", false)
+
+    // Hardware Controls
+    var volumeButtonAction by enumPref("volume_action", VolumeButtonAction.SHUTTER, VolumeButtonAction.entries)
 
     // Monitoring overlays
     var grid by enumPref("grid", GridType.OFF, GridType.entries)
     var frameGuide by enumPref("guide", FrameGuide.OFF, FrameGuide.entries)
     var histogram by boolPref("histogram", true)
     var level by boolPref("level", true)
+    var focusPeaking by boolPref("focus_peaking", false)
+    var exposureVerification by boolPref("exposure_verification", false)
+
+    // Preserve Settings toggles
+    var preserveCameraMode by boolPref("preserve_mode", true)
+    var preservePortraitFocalLength by boolPref("preserve_portrait_focal", true)
+    var preserveLiveMoments by boolPref("preserve_live_moments", true)
+    var preserveBeautify by boolPref("preserve_beautify", true)
+    var preserveFilters by boolPref("preserve_filters", true)
+    var preserveAiCamera by boolPref("preserve_ai_camera", true)
+    var preserveAutoNightMode by boolPref("preserve_auto_night", true)
+    var preserveExposureCompensation by boolPref("preserve_ev", true)
+    var preserveParameters by boolPref("preserve_params", true)
+
+    // Saved state values for preserve
+    var savedCameraMode by stringPref("saved_camera_mode", "PHOTO")
+    var savedLensIndex by intPref("saved_lens_index", 0)
+    var savedEv by intPref("saved_ev", 0)
+    var savedIso by intPref("saved_iso", -1)
+    var savedShutterNs by longPref("saved_shutter_ns", -1L)
+    var savedWb by stringPref("saved_wb", "AUTO")
+    var savedKelvin by intPref("saved_kelvin", 5600)
+    var savedFocusDiopters by floatPref("saved_focus_diopters", -1f)
 
     // ---- tiny persisted-state delegates ----
     private fun <E : Enum<E>> enumPref(key: String, def: E, values: List<E>) = object : ReadWriteProperty<Any?, E> {
@@ -143,6 +191,24 @@ class CameraSettings(context: Context) {
         override fun setValue(thisRef: Any?, property: KProperty<*>, value: String) {
             state.value = value
             prefs.edit().putString(key, value).apply()
+        }
+    }
+
+    private fun longPref(key: String, def: Long) = object : ReadWriteProperty<Any?, Long> {
+        private val state = mutableStateOf(prefs.getLong(key, def))
+        override fun getValue(thisRef: Any?, property: KProperty<*>): Long = state.value
+        override fun setValue(thisRef: Any?, property: KProperty<*>, value: Long) {
+            state.value = value
+            prefs.edit().putLong(key, value).apply()
+        }
+    }
+
+    private fun floatPref(key: String, def: Float) = object : ReadWriteProperty<Any?, Float> {
+        private val state = mutableStateOf(prefs.getFloat(key, def))
+        override fun getValue(thisRef: Any?, property: KProperty<*>): Float = state.value
+        override fun setValue(thisRef: Any?, property: KProperty<*>, value: Float) {
+            state.value = value
+            prefs.edit().putFloat(key, value).apply()
         }
     }
 }

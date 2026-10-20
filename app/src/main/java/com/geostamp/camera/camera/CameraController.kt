@@ -122,6 +122,8 @@ data class PhotoSpec(
     val aspect: PhotoAspect,
     val resolution: String,
     val histogram: Boolean,
+    val focusPeaking: Boolean = false,
+    val exposureVerification: Boolean = false,
 )
 
 data class VideoSpec(
@@ -130,8 +132,12 @@ data class VideoSpec(
     val fps: Int,
     val bitrate: Bitrate,
     val color: VideoColor,
+    val codec: com.geostamp.camera.data.VideoCodec = com.geostamp.camera.data.VideoCodec.H264,
+    val autoFrameRate: Boolean = false,
     val stabilization: Boolean,
     val histogram: Boolean,
+    val focusPeaking: Boolean = false,
+    val exposureVerification: Boolean = false,
 )
 
 /** What actually got switched on after binding (a lens may not support everything asked for). */
@@ -214,21 +220,34 @@ class CameraController(private val context: Context) {
     val histogram: StateFlow<IntArray?> = _histogram
     private var lastHistogramAt = 0L
 
+    private val _focusPeakingBitmap = MutableStateFlow<Bitmap?>(null)
+    val focusPeakingBitmap: StateFlow<Bitmap?> = _focusPeakingBitmap
+
+    private val _exposureVerificationBitmap = MutableStateFlow<Bitmap?>(null)
+    val exposureVerificationBitmap: StateFlow<Bitmap?> = _exposureVerificationBitmap
+
+    var isFocusPeakingEnabled = false
+    var isExposureVerificationEnabled = false
+
     private val analyzer = ImageAnalysis.Analyzer { image ->
         try {
             val now = SystemClock.elapsedRealtime()
+            val plane = image.planes[0]
+            val buf = plane.buffer
+            val rowStride = plane.rowStride
+            val pixelStride = plane.pixelStride
+            val imgW = image.width
+            val imgH = image.height
+
+            // 1. Luminance histogram
             if (now - lastHistogramAt >= 150) {
                 lastHistogramAt = now
-                val plane = image.planes[0]
-                val buf = plane.buffer
-                val rowStride = plane.rowStride
-                val pixelStride = plane.pixelStride
                 val bins = IntArray(64)
                 var y = 0
-                while (y < image.height) {
+                while (y < imgH) {
                     var x = 0
                     val row = y * rowStride
-                    while (x < image.width) {
+                    while (x < imgW) {
                         val v = buf.get(row + x * pixelStride).toInt() and 0xFF
                         bins[v shr 2]++
                         x += 4
@@ -236,6 +255,53 @@ class CameraController(private val context: Context) {
                     y += 4
                 }
                 _histogram.value = bins
+            }
+
+            // 2. Focus Peaking & Exposure Verification
+            val step = 4
+            val outW = imgW / step
+            val outH = imgH / step
+
+            if (isFocusPeakingEnabled) {
+                val peakPixels = IntArray(outW * outH)
+                for (oy in 1 until outH - 1) {
+                    val iy = oy * step
+                    val row = iy * rowStride
+                    val rowUp = (iy - step) * rowStride
+                    val rowDown = (iy + step) * rowStride
+                    for (ox in 1 until outW - 1) {
+                        val ix = ox * step
+                        val left = buf.get(row + (ix - step) * pixelStride).toInt() and 0xFF
+                        val right = buf.get(row + (ix + step) * pixelStride).toInt() and 0xFF
+                        val up = buf.get(rowUp + ix * pixelStride).toInt() and 0xFF
+                        val down = buf.get(rowDown + ix * pixelStride).toInt() and 0xFF
+                        val grad = kotlin.math.abs(right - left) + kotlin.math.abs(down - up)
+                        if (grad > 55) {
+                            peakPixels[oy * outW + ox] = 0xDD00FF44.toInt() // Neon green in-focus highlight
+                        }
+                    }
+                }
+                _focusPeakingBitmap.value = Bitmap.createBitmap(peakPixels, outW, outH, Bitmap.Config.ARGB_8888)
+            } else if (_focusPeakingBitmap.value != null) {
+                _focusPeakingBitmap.value = null
+            }
+
+            if (isExposureVerificationEnabled) {
+                val expPixels = IntArray(outW * outH)
+                for (oy in 0 until outH) {
+                    val row = (oy * step) * rowStride
+                    for (ox in 0 until outW) {
+                        val v = buf.get(row + (ox * step) * pixelStride).toInt() and 0xFF
+                        if (v < 16) {
+                            expPixels[oy * outW + ox] = 0xAA0055FF.toInt() // Blue shadow clipping
+                        } else if (v > 240) {
+                            expPixels[oy * outW + ox] = 0xAAFF1111.toInt() // Red highlight clipping
+                        }
+                    }
+                }
+                _exposureVerificationBitmap.value = Bitmap.createBitmap(expPixels, outW, outH, Bitmap.Config.ARGB_8888)
+            } else if (_exposureVerificationBitmap.value != null) {
+                _exposureVerificationBitmap.value = null
             }
         } catch (e: Exception) {
             // ignore a bad frame
@@ -579,13 +645,19 @@ class CameraController(private val context: Context) {
 
         closeEffect()
         _histogram.value = null
+        _focusPeakingBitmap.value = null
+        _exposureVerificationBitmap.value = null
+        isFocusPeakingEnabled = spec.focusPeaking
+        isExposureVerificationEnabled = spec.exposureVerification
+        val needsAnalysis = spec.histogram || spec.focusPeaking || spec.exposureVerification
+
         val notice = notices.joinToString(". ").ifBlank { null }
-        if (attempt(selector, outputFormat, spec.histogram, true)) {
+        if (attempt(selector, outputFormat, needsAnalysis, true)) {
             return BindResult(true, CaptureMode.PHOTO, hdrLabel, format, nativeRatio = nativeRatio, notice = notice)
         }
-        if (spec.histogram && attempt(selector, outputFormat, false, true)) {
+        if (needsAnalysis && attempt(selector, outputFormat, false, true)) {
             return BindResult(true, CaptureMode.PHOTO, hdrLabel, format, nativeRatio = nativeRatio,
-                notice = listOfNotNull(notice, "Histogram isn't available in this mode").joinToString(". "))
+                notice = listOfNotNull(notice, "Display parameters aren't available in this mode").joinToString(". "))
         }
         // Fall back to a plain JPEG camera if the special mode was refused.
         val ok = attempt(selectorFor(lens), ImageCapture.OUTPUT_FORMAT_JPEG, false, false)
@@ -607,9 +679,19 @@ class CameraController(private val context: Context) {
         val nativeRatio = spec.aspect.ratio
         val info = cameraInfoFor(lens)
         val fpsRange: Range<Int>? = info?.supportedFrameRateRanges?.let { ranges ->
-            ranges.firstOrNull { it.lower == spec.fps && it.upper == spec.fps } ?: ranges.firstOrNull { it.upper == spec.fps }
+            if (spec.autoFrameRate) {
+                ranges.firstOrNull { it.lower < it.upper && it.upper == spec.fps }
+                    ?: ranges.firstOrNull { it.upper == spec.fps }
+            } else {
+                ranges.firstOrNull { it.lower == spec.fps && it.upper == spec.fps }
+                    ?: ranges.firstOrNull { it.upper == spec.fps }
+            }
         }
         if (fpsRange == null) notices += "${spec.fps} fps isn't supported; using the camera default"
+
+        val stillCapture = ImageCapture.Builder()
+            .setTargetRotation(targetRotation)
+            .build()
 
         fun attempt(c: VideoColor, withStamp: Boolean, withAnalysis: Boolean): Boolean {
             val quality = qualityOf(spec.res)
@@ -627,6 +709,8 @@ class CameraController(private val context: Context) {
             val vc = builder.build()
             closeEffect()
             val group = UseCaseGroup.Builder().addUseCase(newPreview(aspect)).addUseCase(vc)
+            // Attempt to bind concurrent ImageCapture for snapshots while recording
+            try { group.addUseCase(stillCapture) } catch (_: Exception) {}
             if (withAnalysis) group.addUseCase(newAnalysis(aspect))
             if (withStamp) {
                 val effect = OverlayEffect(CameraEffect.VIDEO_CAPTURE, 0, overlayHandler) { }
@@ -638,17 +722,35 @@ class CameraController(private val context: Context) {
                 p.unbindAll()
                 camera = p.bindToLifecycle(owner, selectorFor(lens), group.build())
                 videoCapture = vc
-                imageCapture = null
+                imageCapture = stillCapture
                 true
             } catch (e: Exception) {
-                camera = null
-                videoCapture = null
-                closeEffect()
-                false
+                // If concurrent binding failed, fallback to video + preview only
+                try {
+                    val fallbackGroup = UseCaseGroup.Builder().addUseCase(newPreview(aspect)).addUseCase(vc)
+                    if (withAnalysis) fallbackGroup.addUseCase(newAnalysis(aspect))
+                    if (withStamp && overlayEffect != null) fallbackGroup.addEffect(overlayEffect!!)
+                    camera = p.bindToLifecycle(owner, selectorFor(lens), fallbackGroup.build())
+                    videoCapture = vc
+                    imageCapture = null
+                    true
+                } catch (_: Exception) {
+                    camera = null
+                    videoCapture = null
+                    imageCapture = null
+                    closeEffect()
+                    false
+                }
             }
         }
 
         _histogram.value = null
+        _focusPeakingBitmap.value = null
+        _exposureVerificationBitmap.value = null
+        isFocusPeakingEnabled = spec.focusPeaking
+        isExposureVerificationEnabled = spec.exposureVerification
+        val needsAnalysis = spec.histogram || spec.focusPeaking || spec.exposureVerification
+
         val hdrLabel = if (color != VideoColor.SDR) color.label.substringBefore(" 10") else null
         fun result(c: VideoColor, stamp: Boolean, extra: String? = null) = BindResult(
             true, CaptureMode.VIDEO,
@@ -657,8 +759,8 @@ class CameraController(private val context: Context) {
             notice = (notices + listOfNotNull(extra)).joinToString(". ").ifBlank { null },
         )
 
-        if (attempt(color, true, spec.histogram)) return result(color, true)
-        if (spec.histogram && attempt(color, true, false)) return result(color, true, "Histogram isn't available with these video settings")
+        if (attempt(color, true, needsAnalysis)) return result(color, true)
+        if (needsAnalysis && attempt(color, true, false)) return result(color, true, "Display parameters aren't available with these video settings")
         if (color != VideoColor.SDR && attempt(VideoColor.SDR, true, false)) {
             return result(VideoColor.SDR, true, "This phone can't put the stamp on ${color.label} video, so it records in SDR")
         }
@@ -720,6 +822,20 @@ class CameraController(private val context: Context) {
 
     fun focusAt(point: MeteringPoint) {
         camera?.cameraControl?.startFocusAndMetering(FocusMeteringAction.Builder(point).build())
+    }
+
+    var isTrackingFocus = false
+    fun startFocusTracking(point: MeteringPoint) {
+        isTrackingFocus = true
+        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
+            .setAutoCancelDuration(15, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        camera?.cameraControl?.startFocusAndMetering(action)
+    }
+
+    fun stopFocusTracking() {
+        isTrackingFocus = false
+        camera?.cameraControl?.cancelFocusAndMetering()
     }
 
     // ---------------- photos ----------------

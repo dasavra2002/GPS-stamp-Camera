@@ -71,6 +71,7 @@ import com.geostamp.camera.data.FontStyle
 import com.geostamp.camera.data.Labeled
 import com.geostamp.camera.data.MapPosition
 import com.geostamp.camera.data.MapType
+import com.geostamp.camera.data.SnapshotMode
 import com.geostamp.camera.data.StampBackground
 import com.geostamp.camera.data.StampColor
 import com.geostamp.camera.data.StampDataRepository
@@ -81,6 +82,8 @@ import com.geostamp.camera.data.StampPosition
 import com.geostamp.camera.data.StampSettings
 import com.geostamp.camera.data.StampSize
 import com.geostamp.camera.data.StampTemplate
+import com.geostamp.camera.data.VideoCodec
+import com.geostamp.camera.data.VolumeButtonAction
 import com.geostamp.camera.data.WatermarkStyle
 import com.geostamp.camera.data.FrameDataDensity
 import com.geostamp.camera.stamp.FrameWatermarkRenderer
@@ -353,29 +356,146 @@ fun SettingsScreen(
                     )
                 }
                 if (cam != null) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Auto-Upload to Google Drive", color = RowText, fontSize = 16.sp)
-                            Text("Prompts Google Drive upload after every capture", color = SubText, fontSize = 12.sp)
-                        }
-                        Switch(
-                            checked = cam.autoDriveUpload,
-                            onCheckedChange = { cam.autoDriveUpload = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
-                        )
-                    }
+                    ToggleRow(
+                        title = "Auto-Upload to Google Drive",
+                        subtitle = "Prompts Google Drive upload after every capture",
+                        checked = cam.autoDriveUpload,
+                        onCheckedChange = { cam.autoDriveUpload = it },
+                    )
                 }
                 Text(
                     "Map tiles © Esri and © OpenStreetMap contributors. Weather by Open-Meteo.com.",
                     color = SubText, fontSize = 11.sp, modifier = Modifier.padding(16.dp),
                 )
-                Spacer(Modifier.height(32.dp))
+                Spacer(Modifier.height(16.dp))
+              }
+            }
+
+            if (cam != null) {
+              item(key = "display_parameters_section") {
+                Column {
+                  SectionHeader("Display Parameters")
+                  ToggleRow(
+                      title = "Focus Peaking",
+                      subtitle = "Highlight in-focus contrast edges with neon green lines in manual focus",
+                      checked = cam.focusPeaking,
+                      onCheckedChange = { cam.focusPeaking = it },
+                  )
+                  ToggleRow(
+                      title = "Exposure Verification",
+                      subtitle = "Zebra pattern: Blue for underexposed shadows & Red for overexposed highlights",
+                      checked = cam.exposureVerification,
+                      onCheckedChange = { cam.exposureVerification = it },
+                  )
+                  ToggleRow(
+                      title = "Histogram",
+                      subtitle = "Real-time luminance distribution graph on viewfinder",
+                      checked = cam.histogram,
+                      onCheckedChange = { cam.histogram = it },
+                  )
+                }
+              }
+
+              item(key = "video_settings_section") {
+                Column {
+                  SectionHeader("Video Settings")
+                  ChoiceRow("Video Encoder", cam.videoCodec, VideoCodec.entries) { cam.videoCodec = it }
+                  ChoiceRow("Take Photos While Recording", cam.snapshotMode, SnapshotMode.entries) { cam.snapshotMode = it }
+                  ToggleRow(
+                      title = "Auto Frame Rate",
+                      subtitle = "Auto adjust 60 fps to 30/24 fps in low light or high heat",
+                      checked = cam.autoFrameRate,
+                      onCheckedChange = { cam.autoFrameRate = it },
+                  )
+                  ToggleRow(
+                      title = "Allow Tagging Videos",
+                      subtitle = "Show Tag button while recording to bookmark moments with JSON timestamps",
+                      checked = cam.allowVideoTagging,
+                      onCheckedChange = { cam.allowVideoTagging = it },
+                  )
+                  ToggleRow(
+                      title = "Motion Tracking Focus",
+                      subtitle = "Tap moving subject to continuously track and keep in focus",
+                      checked = cam.motionTrackingFocus,
+                      onCheckedChange = { cam.motionTrackingFocus = it },
+                  )
+                }
+              }
+
+              item(key = "preserve_settings_section") {
+                Column {
+                  SectionHeader("Preserve Settings")
+                  Text(
+                      text = "Retain previously used camera modes and parameters instead of automatically resetting to default choices when launching the camera.",
+                      color = SubText,
+                      fontSize = 12.sp,
+                      modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                  )
+                  ToggleRow(
+                      title = "Camera Mode",
+                      subtitle = "Preserve the previously used shooting mode (Photo/Video/Timelapse)",
+                      checked = cam.preserveCameraMode,
+                      onCheckedChange = { cam.preserveCameraMode = it },
+                  )
+                  ToggleRow(
+                      title = "Portrait Focal Length",
+                      subtitle = "Preserve the previously selected camera lens/focal length",
+                      checked = cam.preservePortraitFocalLength,
+                      onCheckedChange = { cam.preservePortraitFocalLength = it },
+                  )
+                  ToggleRow(
+                      title = "Live Moments",
+                      subtitle = "Preserve snapshot photo burst preference during recording",
+                      checked = cam.preserveLiveMoments,
+                      onCheckedChange = { cam.preserveLiveMoments = it },
+                  )
+                  ToggleRow(
+                      title = "Beautify",
+                      subtitle = "Preserve face smoothing and enhancement preferences",
+                      checked = cam.preserveBeautify,
+                      onCheckedChange = { cam.preserveBeautify = it },
+                  )
+                  ToggleRow(
+                      title = "Filters",
+                      subtitle = "Preserve color style and tone adjustments",
+                      checked = cam.preserveFilters,
+                      onCheckedChange = { cam.preserveFilters = it },
+                  )
+                  ToggleRow(
+                      title = "AI Camera",
+                      subtitle = "Preserve intelligent scene detection and OCR sign reading",
+                      checked = cam.preserveAiCamera,
+                      onCheckedChange = { cam.preserveAiCamera = it },
+                  )
+                  ToggleRow(
+                      title = "Auto Night Mode",
+                      subtitle = "Preserve low-light night mode extension choice",
+                      checked = cam.preserveAutoNightMode,
+                      onCheckedChange = { cam.preserveAutoNightMode = it },
+                  )
+                  ToggleRow(
+                      title = "Exposure Compensation",
+                      subtitle = "Preserve custom EV brightness offsets between launches",
+                      checked = cam.preserveExposureCompensation,
+                      onCheckedChange = { cam.preserveExposureCompensation = it },
+                  )
+                  ToggleRow(
+                      title = "Parameters",
+                      subtitle = "Preserve manual ISO, shutter speed, WB Kelvin, and focus distance",
+                      checked = cam.preserveParameters,
+                      onCheckedChange = { cam.preserveParameters = it },
+                  )
+                }
+              }
+
+              item(key = "hardware_buttons_section") {
+                Column {
+                  SectionHeader("Hardware Buttons")
+                  ChoiceRow("Function of Volume Buttons", cam.volumeButtonAction, VolumeButtonAction.entries) {
+                      cam.volumeButtonAction = it
+                  }
+                  Spacer(Modifier.height(32.dp))
+                }
               }
             }
         }
@@ -514,6 +634,30 @@ fun <T : Labeled> ChoiceRow(title: String, value: T, options: List<T>, onSelect:
                 }
             },
             confirmButton = { TextButton(onClick = { open = false }) { Text("Close") } },
+        )
+    }
+}
+
+@Composable
+private fun ToggleRow(title: String, subtitle: String? = null, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = RowText, fontSize = 16.sp)
+            if (subtitle != null) {
+                Text(subtitle, color = SubText, fontSize = 12.sp)
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
         )
     }
 }
