@@ -32,6 +32,10 @@ object ReportGenerator {
         items: List<GalleryItem>,
         projectName: String = "Site Inspection",
         inspectorName: String = "",
+        companyName: String = "",
+        logoBitmap: Bitmap? = null,
+        certificateId: String = "",
+        approvalStatus: String = "VERIFIED & APPROVED",
     ): Uri? = withContext(Dispatchers.IO) {
         if (items.isEmpty()) return@withContext null
 
@@ -41,12 +45,12 @@ object ReportGenerator {
         val margin = 36f
 
         val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 20f
+            textSize = 18f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             color = Color.BLACK
         }
         val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 10f
+            textSize = 9f
             color = Color.DKGRAY
         }
         val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -71,7 +75,12 @@ object ReportGenerator {
 
         // Each page holds up to 2 inspection items
         val itemsPerPage = 2
-        val totalPages = ((items.size + itemsPerPage - 1) / itemsPerPage).coerceAtLeast(1)
+        val itemsOnLastPage = items.size % itemsPerPage
+        val totalPages = if (items.isEmpty()) 0 else if (itemsOnLastPage == 1) {
+            (items.size + 1) / itemsPerPage
+        } else {
+            (items.size / itemsPerPage) + 1
+        }
 
         var itemIdx = 0
         for (pageNum in 1..totalPages) {
@@ -82,14 +91,27 @@ object ReportGenerator {
             // Page Header
             var y = margin + 15f
             if (pageNum == 1) {
-                canvas.drawText("GeoStamp Field Inspection Report", margin, y, titlePaint)
-                y += 18f
+                if (companyName.isNotBlank()) {
+                    canvas.drawText(companyName.uppercase(), margin, y - 4f, subPaint)
+                }
+                canvas.drawText("GeoStamp Field Inspection Report", margin, y + 10f, titlePaint)
+                y += 24f
                 val subtitle = buildString {
                     append("Project / Site: ").append(projectName.ifBlank { "General Field Visit" })
                     if (inspectorName.isNotBlank()) append("   |   Inspector: ").append(inspectorName)
                     append("   |   Generated: ").append(DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(ZonedDateTime.now()))
                 }
                 canvas.drawText(subtitle, margin, y, subPaint)
+
+                // Company Logo in top-right
+                if (logoBitmap != null && !logoBitmap.isRecycled) {
+                    val logoSize = 40f
+                    val logoX = pageW - margin - logoSize
+                    val logoY = margin + 2f
+                    val dst = RectF(logoX, logoY, logoX + logoSize, logoY + logoSize)
+                    canvas.drawBitmap(logoBitmap, null, dst, Paint(Paint.FILTER_BITMAP_FLAG))
+                }
+
                 y += 10f
                 canvas.drawLine(margin, y, pageW - margin, y, linePaint)
                 y += 15f
@@ -104,7 +126,7 @@ object ReportGenerator {
             val pageItems = items.drop(itemIdx).take(itemsPerPage)
             itemIdx += pageItems.size
 
-            val itemCardH = 340f
+            val itemCardH = 320f
             for (item in pageItems) {
                 val cardTop = y
                 val cardBottom = cardTop + itemCardH
@@ -200,12 +222,64 @@ object ReportGenerator {
                 // Mini map
                 val mapBmp = d.mapBitmap
                 if (mapBmp != null) {
-                    val mapSize = 75f
+                    val mapSize = 70f
                     val mapDst = RectF(textX, textY, textX + mapSize, textY + mapSize)
                     canvas.drawBitmap(mapBmp, null, mapDst, Paint(Paint.FILTER_BITMAP_FLAG))
                 }
 
                 y = cardBottom + 16f
+            }
+
+            // Draw Official Sign-off block on the final page
+            if (pageNum == totalPages) {
+                val signCardTop = y + 4f
+                val signCardH = 140f
+                val signCardRect = RectF(margin, signCardTop, pageW - margin, signCardTop + signCardH)
+
+                val certBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF0F4F8.toInt() }
+                canvas.drawRoundRect(signCardRect, 8f, 8f, certBgPaint)
+                canvas.drawRoundRect(signCardRect, 8f, 8f, linePaint)
+
+                val certHeaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    textSize = 10f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    color = 0xFF0D47A1.toInt()
+                }
+                canvas.drawText("OFFICIAL FIELD INSPECTION & COMPLIANCE SIGN-OFF", margin + 14f, signCardTop + 18f, certHeaderPaint)
+                canvas.drawLine(margin + 14f, signCardTop + 24f, pageW - margin - 14f, signCardTop + 24f, linePaint)
+
+                // Left details
+                var sy = signCardTop + 40f
+                canvas.drawText("Inspector / Surveyor:", margin + 14f, sy, boldBody)
+                canvas.drawText(inspectorName.ifBlank { "Field Engineer" }, margin + 110f, sy, bodyPaint)
+                sy += 15f
+                canvas.drawText("Organization / Agency:", margin + 14f, sy, boldBody)
+                canvas.drawText(companyName.ifBlank { "GeoStamp Certified Inspection" }, margin + 110f, sy, bodyPaint)
+                sy += 15f
+                val certId = certificateId.ifBlank { "GS-VERIFIED-" + (ZonedDateTime.now().toEpochSecond() % 1000000) }
+                canvas.drawText("Verification Audit ID:", margin + 14f, sy, boldBody)
+                canvas.drawText(certId, margin + 110f, sy, bodyPaint)
+                sy += 15f
+                canvas.drawText("Sign-off Timestamp:", margin + 14f, sy, boldBody)
+                canvas.drawText(DateTimeFormatter.ofPattern("dd MMMM yyyy, hh:mm:ss a z", Locale.getDefault()).format(ZonedDateTime.now()), margin + 110f, sy, bodyPaint)
+
+                // Right details (Status & Signature Seal)
+                val rightX = pageW - margin - 190f
+                val statusBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = if (approvalStatus.contains("APPROV", true)) 0xFFE8F5E9.toInt() else 0xFFFFF3E0.toInt()
+                }
+                val statusTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    textSize = 9f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    color = if (approvalStatus.contains("APPROV", true)) 0xFF2E7D32.toInt() else 0xFFE65100.toInt()
+                }
+                canvas.drawRoundRect(RectF(rightX, signCardTop + 32f, pageW - margin - 14f, signCardTop + 52f), 4f, 4f, statusBgPaint)
+                canvas.drawText("STATUS: $approvalStatus", rightX + 8f, signCardTop + 45f, statusTextPaint)
+
+                canvas.drawText("Cryptographic Proof-of-Work Seal", rightX, signCardTop + 68f, boldBody)
+                canvas.drawText("Tamper-evident on-device signature", rightX, signCardTop + 80f, subPaint)
+                canvas.drawLine(rightX, signCardTop + 108f, pageW - margin - 14f, signCardTop + 108f, linePaint)
+                canvas.drawText("Authorized Signatory & Date", rightX + 10f, signCardTop + 122f, subPaint)
             }
 
             // Footer

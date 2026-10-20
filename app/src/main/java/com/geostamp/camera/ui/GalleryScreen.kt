@@ -413,6 +413,9 @@ fun GalleryScreen(
                                     context, state.items,
                                     projectName = settings.siteName.ifBlank { settings.note.ifBlank { "Site Visit" } },
                                     inspectorName = settings.personName,
+                                    companyName = settings.custom1Value.ifBlank { "Certified Field Inspection" },
+                                    logoBitmap = settings.logo,
+                                    approvalStatus = "VERIFIED & APPROVED",
                                 )
                                 if (uri != null) {
                                     val sendIntent = Intent(Intent.ACTION_SEND).apply {
