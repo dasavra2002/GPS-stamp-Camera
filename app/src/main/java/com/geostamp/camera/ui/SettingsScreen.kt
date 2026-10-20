@@ -34,8 +34,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -43,6 +45,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +67,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +87,7 @@ import com.geostamp.camera.data.FontStyle
 import com.geostamp.camera.data.Labeled
 import com.geostamp.camera.data.MapPosition
 import com.geostamp.camera.data.MapType
+import com.geostamp.camera.data.OfflineMapManager
 import com.geostamp.camera.data.SnapshotMode
 import com.geostamp.camera.data.StampBackground
 import com.geostamp.camera.data.StampColor
@@ -103,6 +108,7 @@ import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.ShotParams
 import com.geostamp.camera.stamp.WatermarkRenderer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
 
@@ -301,6 +307,7 @@ fun SettingsScreen(
                             when (field) {
                                 StampField.MAP -> if (settings.isEnabled(field)) {
                                     ChoiceRow("Map Type", settings.mapType, MapType.entries) { settings.mapType = it }
+                                    OfflineMapPackRow(settings, data)
                                 }
                                 StampField.LAT_LONG -> if (settings.isEnabled(field)) {
                                     ChoiceRow("Coordinate format", settings.coordinateFormat, com.geostamp.camera.data.CoordinateFormat.entries) { settings.coordinateFormat = it }
@@ -785,4 +792,96 @@ private fun ToggleRow(title: String, subtitle: String? = null, checked: Boolean,
             .fillMaxWidth()
             .clickable { onCheckedChange(!checked) },
     )
+}
+
+@Composable
+private fun OfflineMapPackRow(settings: StampSettings, data: com.geostamp.camera.data.StampData) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var cacheInfo by remember { mutableStateOf(OfflineMapManager.getCacheInfo(context)) }
+    var downloading by remember { mutableStateOf(false) }
+    var progressText by remember { mutableStateOf("") }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f), MaterialTheme.shapes.small)
+            .padding(12.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text(
+                    "Offline Map Cache",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    String.format(java.util.Locale.US, "%.1f MB (%d tiles stored)", cacheInfo.mb, cacheInfo.fileCount),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (cacheInfo.fileCount > 0 && !downloading) {
+                TextButton(onClick = {
+                    OfflineMapManager.clearCache(context)
+                    cacheInfo = OfflineMapManager.getCacheInfo(context)
+                    Toast.makeText(context, "Map cache cleared", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("Clear", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        if (downloading) {
+            Text(progressText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(4.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else {
+            val lat = settings.siteLat ?: data.latitude
+            val lon = settings.siteLon ?: data.longitude
+            val targetName = settings.siteName.ifBlank { "Current Location" }
+
+            Button(
+                onClick = {
+                    if (lat == null || lon == null) {
+                        Toast.makeText(context, "Location not available yet", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    downloading = true
+                    progressText = "Downloading map pack for $targetName…"
+                    scope.launch(Dispatchers.IO) {
+                        val res = OfflineMapManager.downloadAreaPack(
+                            context = context,
+                            centerLat = lat,
+                            centerLon = lon,
+                            radiusKm = 3.0,
+                            mapType = settings.mapType,
+                            onProgress = { cur, tot ->
+                                progressText = "Downloading ($cur/$tot tiles)…"
+                            },
+                        )
+                        downloading = false
+                        cacheInfo = OfflineMapManager.getCacheInfo(context)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Cached ${res.downloadedTiles} new tiles for $targetName", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Download Site Map Pack (3 km radius)")
+            }
+        }
+    }
 }

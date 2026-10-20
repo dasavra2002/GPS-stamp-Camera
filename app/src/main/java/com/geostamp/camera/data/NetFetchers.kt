@@ -18,7 +18,7 @@ import kotlin.math.tan
 
 private const val USER_AGENT = "GeoStampCamera/1.0 (Android; +https://github.com/dasavra2002/GPS-stamp-Camera)"
 
-private fun httpGet(url: String): ByteArray? {
+internal fun httpGet(url: String): ByteArray? {
     var conn: HttpURLConnection? = null
     return try {
         conn = (URL(url).openConnection() as HttpURLConnection).apply {
