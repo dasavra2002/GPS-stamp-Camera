@@ -65,6 +65,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -897,98 +899,104 @@ fun CameraScreen(
             .background(Color.Black),
     ) {
         // ---- top bar ----
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.85f),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            if (mode == CaptureMode.PHOTO) {
-                IconButton(onClick = {
-                    flash = when (flash) {
-                        ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
-                        ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
-                        else -> ImageCapture.FLASH_MODE_OFF
-                    }
-                    controller.flashMode = flash
-                }) {
-                    Icon(
-                        when (flash) {
-                            ImageCapture.FLASH_MODE_AUTO -> Icons.Filled.FlashAuto
-                            ImageCapture.FLASH_MODE_ON -> Icons.Filled.FlashOn
-                            else -> Icons.Filled.FlashOff
-                        },
-                        contentDescription = "Flash", tint = Color.White,
-                    )
-                }
-            }
-            // Quick HDR / RAW toggles (full choices are under FORMAT)
-            val hdrSupported = if (mode == CaptureMode.PHOTO) caps.hdrPhoto else caps.videoColors.size > 1
-            val hdrOn = bind?.hdrLabel != null
-            QuickChip("HDR", hdrOn, hdrSupported && !isRecording) {
-                if (mode == CaptureMode.PHOTO) cam.hdrPhoto = !cam.hdrPhoto
-                else cam.videoColor = if (cam.videoColor != VideoColor.SDR) VideoColor.SDR
-                else caps.videoColors.firstOrNull { it != VideoColor.SDR } ?: VideoColor.SDR
-            }
-            if (mode == CaptureMode.PHOTO) {
-                QuickChip("RAW", bind?.format != null && bind?.format != PhotoFormat.JPEG, caps.anyRaw) {
-                    cam.photoFormat = if (cam.photoFormat == PhotoFormat.JPEG) {
-                        if (caps.rawJpeg) PhotoFormat.RAW_JPEG else PhotoFormat.RAW
-                    } else PhotoFormat.JPEG
-                }
-                if (caps.nightExtension) {
-                    QuickChip("🌙 Night", cam.photoExtension == ExtensionModeType.NIGHT, !isRecording) {
-                        cam.photoExtension = if (cam.photoExtension == ExtensionModeType.NIGHT) ExtensionModeType.NONE else ExtensionModeType.NIGHT
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (mode == CaptureMode.PHOTO) {
+                    IconButton(onClick = {
+                        flash = when (flash) {
+                            ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
+                            ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
+                            else -> ImageCapture.FLASH_MODE_OFF
+                        }
+                        controller.flashMode = flash
+                    }) {
+                        Icon(
+                            when (flash) {
+                                ImageCapture.FLASH_MODE_AUTO -> Icons.Filled.FlashAuto
+                                ImageCapture.FLASH_MODE_ON -> Icons.Filled.FlashOn
+                                else -> Icons.Filled.FlashOff
+                            },
+                            contentDescription = "Flash", tint = Color.White,
+                        )
                     }
                 }
-                if (caps.bokehExtension) {
-                    QuickChip("👤 Portrait", cam.photoExtension == ExtensionModeType.BOKEH, !isRecording) {
-                        cam.photoExtension = if (cam.photoExtension == ExtensionModeType.BOKEH) ExtensionModeType.NONE else ExtensionModeType.BOKEH
+                // Quick HDR / RAW toggles (full choices are under FORMAT)
+                val hdrSupported = if (mode == CaptureMode.PHOTO) caps.hdrPhoto else caps.videoColors.size > 1
+                val hdrOn = bind?.hdrLabel != null
+                QuickChip("HDR", hdrOn, hdrSupported && !isRecording) {
+                    if (mode == CaptureMode.PHOTO) cam.hdrPhoto = !cam.hdrPhoto
+                    else cam.videoColor = if (cam.videoColor != VideoColor.SDR) VideoColor.SDR
+                    else caps.videoColors.firstOrNull { it != VideoColor.SDR } ?: VideoColor.SDR
+                }
+                if (mode == CaptureMode.PHOTO) {
+                    QuickChip("RAW", bind?.format != null && bind?.format != PhotoFormat.JPEG, caps.anyRaw) {
+                        cam.photoFormat = if (cam.photoFormat == PhotoFormat.JPEG) {
+                            if (caps.rawJpeg) PhotoFormat.RAW_JPEG else PhotoFormat.RAW
+                        } else PhotoFormat.JPEG
+                    }
+                    if (caps.nightExtension) {
+                        QuickChip("🌙 Night", cam.photoExtension == ExtensionModeType.NIGHT, !isRecording) {
+                            cam.photoExtension = if (cam.photoExtension == ExtensionModeType.NIGHT) ExtensionModeType.NONE else ExtensionModeType.NIGHT
+                        }
+                    }
+                    if (caps.bokehExtension) {
+                        QuickChip("👤 Portrait", cam.photoExtension == ExtensionModeType.BOKEH, !isRecording) {
+                            cam.photoExtension = if (cam.photoExtension == ExtensionModeType.BOKEH) ExtensionModeType.NONE else ExtensionModeType.BOKEH
+                        }
+                    }
+                    QuickChip("Punch In", cam.attendanceMode, !isRecording) {
+                        toggleAttendanceMode()
+                    }
+                    QuickChip("PiP", cam.pipMode, lenses.size > 1 && !isRecording) {
+                        cam.pipMode = !cam.pipMode
+                    }
+                    QuickChip("DOC", cam.documentMode, !isRecording) {
+                        cam.documentMode = !cam.documentMode
                     }
                 }
-                QuickChip("Punch In", cam.attendanceMode, !isRecording) {
-                    toggleAttendanceMode()
-                }
-                QuickChip("PiP", cam.pipMode, lenses.size > 1 && !isRecording) {
-                    cam.pipMode = !cam.pipMode
-                }
-                QuickChip("DOC", cam.documentMode, !isRecording) {
-                    cam.documentMode = !cam.documentMode
-                }
-            }
-            Text(
-                text = if (data.latitude != null) String.format(Locale.US, " GPS ±%.0fm", data.accuracyM ?: 0f) else " GPS…",
-                color = if (data.latitude != null) Color(0xFF81C784) else Color(0xFFFFB74D),
-                fontSize = 12.sp, fontFamily = FontFamily.Monospace,
-                modifier = Modifier.weight(1f),
-            )
-            if (mode != CaptureMode.VIDEO) {
-                IconButton(onClick = { startVoiceNote() }, enabled = !isRecording && !busy) {
-                    Icon(Icons.Filled.Mic, contentDescription = "Voice Note Dictation", tint = Accent)
-                }
-                IconButton(onClick = { scanBarcode() }, enabled = !isRecording && !busy) {
-                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan Asset QR", tint = Accent)
-                }
-                IconButton(onClick = { scanSignboardText() }, enabled = !isRecording && !busy) {
-                    Icon(Icons.Filled.TextFields, contentDescription = "Read Signboard Text", tint = Accent)
-                }
-                IconButton(onClick = { autoCaptionScene() }, enabled = !isRecording && !busy) {
-                    Icon(Icons.Filled.AutoAwesome, contentDescription = "AI Scene Caption", tint = Accent)
-                }
-                if (lastThumb != null) {
-                    IconButton(onClick = { showGhostOverlay = !showGhostOverlay }) {
-                        Icon(Icons.Filled.Layers, contentDescription = "Ghost Angle Overlay", tint = if (showGhostOverlay) Accent else Color.White)
+                Text(
+                    text = if (data.latitude != null) String.format(Locale.US, " GPS ±%.0fm", data.accuracyM ?: 0f) else " GPS…",
+                    color = if (data.latitude != null) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f),
+                )
+                if (mode != CaptureMode.VIDEO) {
+                    IconButton(onClick = { startVoiceNote() }, enabled = !isRecording && !busy) {
+                        Icon(Icons.Filled.Mic, contentDescription = "Voice Note Dictation", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = { scanBarcode() }, enabled = !isRecording && !busy) {
+                        Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan Asset QR", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = { scanSignboardText() }, enabled = !isRecording && !busy) {
+                        Icon(Icons.Filled.TextFields, contentDescription = "Read Signboard Text", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = { autoCaptionScene() }, enabled = !isRecording && !busy) {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = "AI Scene Caption", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    if (lastThumb != null) {
+                        IconButton(onClick = { showGhostOverlay = !showGhostOverlay }) {
+                            Icon(Icons.Filled.Layers, contentDescription = "Ghost Angle Overlay", tint = if (showGhostOverlay) MaterialTheme.colorScheme.primary else Color.White)
+                        }
                     }
                 }
-            }
-            IconButton(onClick = { repo.refreshAll() }) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Refresh location data", tint = Color.White)
-            }
-            IconButton(onClick = onOpenGallery, enabled = !isRecording) {
-                Icon(Icons.Filled.PhotoLibrary, contentDescription = "Stamp gallery photos", tint = Color.White)
-            }
-            IconButton(onClick = onOpenSettings, enabled = !isRecording) {
-                Icon(Icons.Filled.Settings, contentDescription = "Stamp settings", tint = Color.White)
+                IconButton(onClick = { repo.refreshAll() }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh location data", tint = Color.White)
+                }
+                IconButton(onClick = onOpenGallery, enabled = !isRecording) {
+                    Icon(Icons.Filled.PhotoLibrary, contentDescription = "Stamp gallery photos", tint = Color.White)
+                }
+                IconButton(onClick = onOpenSettings, enabled = !isRecording) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Stamp settings", tint = Color.White)
+                }
             }
         }
 
@@ -998,22 +1006,22 @@ fun CameraScreen(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(if (outside) Color(0xCCB71C1C) else Color(0x991B5E20))
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .background(if (outside) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f) else Color(0x991B5E20))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
                     text = if (outside) "⚠️ Outside ${siteName.ifBlank { "Site" }}: ${geofenceDistanceM.toInt()}m (Limit ${siteRadius.toInt()}m)"
                     else "✅ In Site Geofence (${geofenceDistanceM.toInt()}m)",
-                    color = Color.White,
-                    fontSize = 12.sp,
+                    color = if (outside) MaterialTheme.colorScheme.onErrorContainer else Color.White,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
                     text = "PIN HERE",
-                    color = Accent,
-                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clickable {
                         if (currentLat != null && currentLon != null) {
@@ -1028,13 +1036,13 @@ fun CameraScreen(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0x9937474F))
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("📍 Site: ${settings.siteName} (No pin)", color = Color.White, fontSize = 12.sp)
-                Text("SET PIN", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
+                Text("📍 Site: ${settings.siteName} (No pin)", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium)
+                Text("SET PIN", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
                     settings.siteLat = currentLat
                     settings.siteLon = currentLon
                     Toast.makeText(context, "Site pin set to current location", Toast.LENGTH_SHORT).show()
@@ -1324,18 +1332,22 @@ fun CameraScreen(
             ) {
                 presets.forEach { z ->
                     val active = kotlin.math.abs(zoomNow - z) < 0.05f
-                    Text(
-                        text = if (z < 1f) String.format(Locale.US, "%.1fx", z) else "${z.toInt()}x",
-                        color = if (active) Color.Black else Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
+                    Surface(
+                        shape = CircleShape,
+                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                        border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
                         modifier = Modifier
                             .padding(horizontal = 4.dp)
-                            .clip(CircleShape)
-                            .background(if (active) Accent else Color(0x55FFFFFF))
-                            .clickable { controller.setZoomRatio(z) }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                    )
+                            .clickable { controller.setZoomRatio(z) },
+                    ) {
+                        Text(
+                            text = if (z < 1f) String.format(Locale.US, "%.1fx", z) else "${z.toInt()}x",
+                            color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
                 }
             }
         }
@@ -1350,35 +1362,51 @@ fun CameraScreen(
         ) {
             lenses.forEachIndexed { i, lens ->
                 val active = i == selected
-                Text(
-                    lens.shortLabel,
-                    color = if (active) Color.Black else Color.White,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (active) Accent else Color(0x33FFFFFF))
-                        .clickable(enabled = !busy && !isRecording) { selected = i }
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                )
+                Surface(
+                    shape = CircleShape,
+                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                    border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                    modifier = Modifier.clickable(enabled = !busy && !isRecording) { selected = i },
+                ) {
+                    Text(
+                        lens.shortLabel,
+                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
             }
         }
 
-        // ---- PHOTO / VIDEO ----
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        // ---- PHOTO / VIDEO / TIMELAPSE ----
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             CaptureMode.entries.forEach { m ->
-                Text(
-                    m.name,
-                    color = if (mode == m) Accent else Color(0xFFBDBDBD),
-                    fontSize = 14.sp,
-                    fontWeight = if (mode == m) FontWeight.Bold else FontWeight.Normal,
+                val active = mode == m
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = if (active) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
                         .clickable(enabled = !busy && !isRecording) {
                             mode = m
                             openPanel = null
                         }
-                        .padding(horizontal = 18.dp, vertical = 6.dp),
-                )
+                        .padding(horizontal = 4.dp),
+                ) {
+                    Text(
+                        m.name,
+                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    )
+                }
             }
         }
 
@@ -1582,22 +1610,34 @@ fun CameraScreen(
 
 @Composable
 private fun QuickChip(text: String, on: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Text(
-        text,
+    Surface(
+        shape = MaterialTheme.shapes.small,
         color = when {
-            !enabled -> Color(0xFF616161)
-            on -> Color.Black
-            else -> Color.White
+            !enabled -> MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.38f)
+            on -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f)
         },
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold,
-        fontFamily = FontFamily.Monospace,
+        border = BorderStroke(
+            1.dp,
+            if (on && enabled) MaterialTheme.colorScheme.primary
+            else if (enabled) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+        ),
         modifier = Modifier
             .padding(horizontal = 3.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (on && enabled) Accent else Color.Transparent)
-            .border(1.dp, if (enabled) Color.White else Color(0xFF616161), RoundedCornerShape(6.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 3.dp),
-    )
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Text(
+            text = text,
+            color = when {
+                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                on -> MaterialTheme.colorScheme.onPrimary
+                else -> MaterialTheme.colorScheme.onSurface
+            },
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
 }

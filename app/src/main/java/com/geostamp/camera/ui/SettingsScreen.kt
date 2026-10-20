@@ -13,7 +13,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,7 +25,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,21 +32,32 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -95,9 +107,8 @@ import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
 
 val Accent = Color(0xFFFFC107)
-private val RowText = Color(0xFFEDEDED)
-private val SubText = Color(0xFF9E9E9E)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     settings: StampSettings,
@@ -153,361 +164,429 @@ fun SettingsScreen(
         settings.setEnabled(field, on)
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black),
-    ) {
-        Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
-            }
-            Text("Stamp Template", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-        }
-
-        // Live preview of the stamp
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF2B3A4A))
-                .padding(8.dp),
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        "Stamp Settings",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.background,
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            preview?.let {
-                Image(it.asImageBitmap(), "Stamp preview", contentScale = ContentScale.FillWidth, modifier = Modifier.fillMaxWidth())
-            } ?: Text("Everything is switched off", color = SubText, modifier = Modifier.padding(16.dp))
-        }
+            // 1. Live preview card
+            item(key = "live_preview_card") {
+                ElevatedCard(
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 10.dp),
+                        ) {
+                            Text(
+                                "LIVE WATERMARK PREVIEW",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp,
+                            )
+                            Text(
+                                settings.watermarkStyle.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.medium)
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            preview?.let {
+                                Image(
+                                    it.asImageBitmap(),
+                                    contentDescription = "Stamp preview",
+                                    contentScale = ContentScale.FillWidth,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            } ?: Text(
+                                "Everything is switched off",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(24.dp),
+                            )
+                        }
+                    }
+                }
+            }
 
-        LazyColumn(Modifier.fillMaxSize()) {
+            // 2. Watermark & Frame Style Card
+            item(key = "watermark_style_section") {
+                SettingsGroupCard(title = "Watermark & Photo Frame Style") {
+                    ChoiceRow("Frame Style", settings.watermarkStyle, WatermarkStyle.entries) {
+                        settings.watermarkStyle = it
+                    }
+                    if (settings.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ChoiceRow("Information Density", settings.frameDataDensity, FrameDataDensity.entries) {
+                            settings.frameDataDensity = it
+                        }
+                        InlineField("Device Brand / Name", settings.deviceBrand) { settings.deviceBrand = it }
+                        InlineField("Device Badge (e.g. Pro, Ultra)", settings.deviceBadge) { settings.deviceBadge = it }
+                        InlineField("Custom Motto / Subtitle", settings.customMotto) { settings.customMotto = it }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ToggleRow(
+                            title = "Show EXIF Parameters",
+                            subtitle = "Focal length, aperture, shutter speed, ISO",
+                            checked = settings.showExifParams,
+                            onCheckedChange = { settings.showExifParams = it },
+                        )
+                        ToggleRow(
+                            title = "Show GPS & City on Frame",
+                            subtitle = "Coordinates, altitude, and location name",
+                            checked = settings.showGpsOnFrame,
+                            onCheckedChange = { settings.showGpsOnFrame = it },
+                        )
+                        ToggleRow(
+                            title = "Show Avatar / Logo",
+                            subtitle = "Custom logo or photographer profile silhouette",
+                            checked = settings.showAvatarOnFrame,
+                            onCheckedChange = { settings.showAvatarOnFrame = it },
+                        )
+                    }
+                }
+            }
+
+            // 3. Stamp Groups (GPS, Date/Time, ID, Weather, Sensors)
             StampGroup.entries.forEach { group ->
-                item(key = "h_${group.name}") { SectionHeader(group.title) }
-                items(StampField.entries.filter { it.group == group }, key = { it.key }) { field ->
-                  Column {
-                    FieldRow(settings, field, data, onToggle = { on -> toggle(field, on) })
-                    when (field) {
-                        StampField.MAP -> if (settings.isEnabled(field)) {
-                            ChoiceRow("Map Type", settings.mapType, MapType.entries) { settings.mapType = it }
-                        }
-                        StampField.LAT_LONG -> if (settings.isEnabled(field)) {
-                            ChoiceRow("Coordinate format", settings.coordinateFormat, com.geostamp.camera.data.CoordinateFormat.entries) { settings.coordinateFormat = it }
-                        }
-                        StampField.DATE_TIME -> if (settings.isEnabled(field)) {
-                            ChoiceRow("Date format", settings.dateFormat, DateFormat.entries) { settings.dateFormat = it }
-                        }
-                        StampField.NUMBERING -> if (settings.isEnabled(field)) {
-                            InlineField("Next photo number", settings.nextNumber.toString(), KeyboardType.Number) { v ->
-                                v.filter { it.isDigit() }.take(9).toIntOrNull()?.let { settings.nextNumber = it }
+                val fields = StampField.entries.filter { it.group == group }
+                item(key = "group_${group.name}") {
+                    SettingsGroupCard(title = group.title) {
+                        fields.forEachIndexed { index, field ->
+                            if (index > 0) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                            }
+                            FieldRow(settings, field, data, onToggle = { on -> toggle(field, on) })
+                            when (field) {
+                                StampField.MAP -> if (settings.isEnabled(field)) {
+                                    ChoiceRow("Map Type", settings.mapType, MapType.entries) { settings.mapType = it }
+                                }
+                                StampField.LAT_LONG -> if (settings.isEnabled(field)) {
+                                    ChoiceRow("Coordinate format", settings.coordinateFormat, com.geostamp.camera.data.CoordinateFormat.entries) { settings.coordinateFormat = it }
+                                }
+                                StampField.DATE_TIME -> if (settings.isEnabled(field)) {
+                                    ChoiceRow("Date format", settings.dateFormat, DateFormat.entries) { settings.dateFormat = it }
+                                }
+                                StampField.NUMBERING -> if (settings.isEnabled(field)) {
+                                    InlineField("Next photo number", settings.nextNumber.toString(), KeyboardType.Number) { v ->
+                                        v.filter { it.isDigit() }.take(9).toIntOrNull()?.let { settings.nextNumber = it }
+                                    }
+                                }
+                                StampField.LOGO -> if (settings.isEnabled(field)) {
+                                    Row(
+                                        Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        OutlinedButton(onClick = {
+                                            logoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                        }) { Text("Choose logo") }
+                                        if (settings.hasCustomLogo) {
+                                            TextButton(onClick = { settings.resetLogo() }) { Text("Use default") }
+                                        }
+                                    }
+                                }
+                                StampField.NOTE -> if (settings.isEnabled(field)) {
+                                    InlineField("Note / #hashtag", settings.note) { settings.note = it }
+                                }
+                                StampField.PROJECT -> if (settings.isEnabled(field)) {
+                                    InlineField("Project / Site name", settings.siteName) { settings.siteName = it }
+                                }
+                                StampField.PERSON_NAME -> if (settings.isEnabled(field)) {
+                                    InlineField("Person name", settings.personName) { settings.personName = it }
+                                }
+                                StampField.PHONE -> if (settings.isEnabled(field)) {
+                                    InlineField("Contact number", settings.phone, KeyboardType.Phone) { settings.phone = it }
+                                }
+                                StampField.CUSTOM_1 -> if (settings.isEnabled(field)) {
+                                    InlineField("Field 1 Label", settings.custom1Label) { settings.custom1Label = it }
+                                    InlineField("Field 1 Value", settings.custom1Value) { settings.custom1Value = it }
+                                }
+                                StampField.CUSTOM_2 -> if (settings.isEnabled(field)) {
+                                    InlineField("Field 2 Label", settings.custom2Label) { settings.custom2Label = it }
+                                    InlineField("Field 2 Value", settings.custom2Value) { settings.custom2Value = it }
+                                }
+                                else -> Unit
                             }
                         }
-                        StampField.LOGO -> if (settings.isEnabled(field)) {
-                            Row(
-                                Modifier.padding(start = 56.dp, end = 16.dp, bottom = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                TextButton(onClick = {
-                                    logoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                }) { Text("Choose logo", color = Accent) }
-                                if (settings.hasCustomLogo) {
-                                    TextButton(onClick = { settings.resetLogo() }) { Text("Use default", color = SubText) }
+                    }
+                }
+            }
+
+            // 4. Custom Templates & Localization Card
+            item(key = "stamp_settings") {
+                SettingsGroupCard(title = "Stamp Settings & Localization") {
+                    ChoiceRow("Preset Template", StampTemplate.STANDARD, StampTemplate.entries) { settings.applyTemplate(it) }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text(
+                            "Save / Load Custom Templates",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            (1..3).forEach { slot ->
+                                val has = settings.hasCustomTemplate(slot)
+                                OutlinedButton(
+                                    onClick = {
+                                        if (has) {
+                                            settings.loadCustomTemplate(slot)
+                                            Toast.makeText(context, "Loaded Template $slot", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            settings.saveCustomTemplate(slot, "Template $slot")
+                                            Toast.makeText(context, "Saved current setup to Template $slot", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = if (has) ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                                    else ButtonDefaults.outlinedButtonColors(),
+                                ) {
+                                    Text(if (has) "Load $slot" else "Save $slot", fontSize = 12.sp)
                                 }
                             }
                         }
-                        StampField.NOTE -> if (settings.isEnabled(field)) {
-                            InlineField("Note / #hashtag", settings.note) { settings.note = it }
-                        }
-                        StampField.PROJECT -> if (settings.isEnabled(field)) {
-                            InlineField("Project / Site name", settings.siteName) { settings.siteName = it }
-                        }
-                        StampField.PERSON_NAME -> if (settings.isEnabled(field)) {
-                            InlineField("Person name", settings.personName) { settings.personName = it }
-                        }
-                        StampField.PHONE -> if (settings.isEnabled(field)) {
-                            InlineField("Contact number", settings.phone, KeyboardType.Phone) { settings.phone = it }
-                        }
-                        StampField.CUSTOM_1 -> if (settings.isEnabled(field)) {
-                            InlineField("Field 1 Label", settings.custom1Label) { settings.custom1Label = it }
-                            InlineField("Field 1 Value", settings.custom1Value) { settings.custom1Value = it }
-                        }
-                        StampField.CUSTOM_2 -> if (settings.isEnabled(field)) {
-                            InlineField("Field 2 Label", settings.custom2Label) { settings.custom2Label = it }
-                            InlineField("Field 2 Value", settings.custom2Value) { settings.custom2Value = it }
-                        }
-                        else -> Unit
                     }
-                  }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    ChoiceRow("Stamp Language", settings.language, StampLanguage.entries) { settings.language = it }
+                    ChoiceRow("Font Style", settings.font, FontStyle.entries) { settings.font = it }
+                    ChoiceRow("Stamp Color", settings.color, StampColor.entries) { settings.color = it }
+                    ChoiceRow("Background", settings.background, StampBackground.entries) { settings.background = it }
+                    ChoiceRow("Stamp Size", settings.size, StampSize.entries) { settings.size = it }
+                    ChoiceRow("Stamp Position", settings.position, StampPosition.entries) { settings.position = it }
+                    ChoiceRow("Map Position", settings.mapPosition, MapPosition.entries) { settings.mapPosition = it }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Row {
+                            Text("Map Scale", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                            Text("${settings.mapScalePercent}%", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Slider(
+                            value = settings.mapScalePercent.toFloat(),
+                            onValueChange = { settings.mapScalePercent = it.toInt() },
+                            valueRange = 40f..100f,
+                        )
+                    }
+
+                    if (cam != null) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ToggleRow(
+                            title = "Auto-Upload to Google Drive",
+                            subtitle = "Prompts Google Drive upload after every capture",
+                            checked = cam.autoDriveUpload,
+                            onCheckedChange = { cam.autoDriveUpload = it },
+                        )
+                    }
                 }
             }
 
-            item(key = "watermark_style_section") {
-              Column {
-                SectionHeader("Watermark & Photo Frame Style")
-                ChoiceRow("Frame Style", settings.watermarkStyle, WatermarkStyle.entries) {
-                    settings.watermarkStyle = it
-                }
-                if (settings.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
-                    ChoiceRow("Information Density", settings.frameDataDensity, FrameDataDensity.entries) {
-                        settings.frameDataDensity = it
-                    }
-                    InlineField("Device Brand / Name", settings.deviceBrand) { settings.deviceBrand = it }
-                    InlineField("Device Badge (e.g. Pro, Ultra)", settings.deviceBadge) { settings.deviceBadge = it }
-                    InlineField("Custom Motto / Subtitle", settings.customMotto) { settings.customMotto = it }
-
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Show EXIF Parameters", color = RowText, fontSize = 16.sp)
-                            Text("Focal length, aperture, shutter speed, ISO", color = SubText, fontSize = 12.sp)
-                        }
-                        Switch(
-                            checked = settings.showExifParams,
-                            onCheckedChange = { settings.showExifParams = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
+            // 5. Display Parameters Card
+            if (cam != null) {
+                item(key = "display_parameters_section") {
+                    SettingsGroupCard(title = "Display Parameters") {
+                        ToggleRow(
+                            title = "Focus Peaking",
+                            subtitle = "Highlight in-focus contrast edges with neon green lines in manual focus",
+                            checked = cam.focusPeaking,
+                            onCheckedChange = { cam.focusPeaking = it },
                         )
-                    }
-
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Show GPS & City on Frame", color = RowText, fontSize = 16.sp)
-                            Text("Coordinates, altitude, and location name", color = SubText, fontSize = 12.sp)
-                        }
-                        Switch(
-                            checked = settings.showGpsOnFrame,
-                            onCheckedChange = { settings.showGpsOnFrame = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ToggleRow(
+                            title = "Exposure Verification",
+                            subtitle = "Zebra pattern: Blue for underexposed shadows & Red for overexposed highlights",
+                            checked = cam.exposureVerification,
+                            onCheckedChange = { cam.exposureVerification = it },
                         )
-                    }
-
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Show Avatar / Logo", color = RowText, fontSize = 16.sp)
-                            Text("Custom logo or photographer profile silhouette", color = SubText, fontSize = 12.sp)
-                        }
-                        Switch(
-                            checked = settings.showAvatarOnFrame,
-                            onCheckedChange = { settings.showAvatarOnFrame = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ToggleRow(
+                            title = "Histogram",
+                            subtitle = "Real-time luminance distribution graph on viewfinder",
+                            checked = cam.histogram,
+                            onCheckedChange = { cam.histogram = it },
                         )
                     }
                 }
-              }
+
+                // 6. Video Settings Card
+                item(key = "video_settings_section") {
+                    SettingsGroupCard(title = "Video Settings") {
+                        ChoiceRow("Video Encoder", cam.videoCodec, VideoCodec.entries) { cam.videoCodec = it }
+                        ChoiceRow("Take Photos While Recording", cam.snapshotMode, SnapshotMode.entries) { cam.snapshotMode = it }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ToggleRow(
+                            title = "Auto Frame Rate",
+                            subtitle = "Auto adjust 60 fps to 30/24 fps in low light or high heat",
+                            checked = cam.autoFrameRate,
+                            onCheckedChange = { cam.autoFrameRate = it },
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ToggleRow(
+                            title = "Allow Tagging Videos",
+                            subtitle = "Show Tag button while recording to bookmark moments with JSON timestamps",
+                            checked = cam.allowVideoTagging,
+                            onCheckedChange = { cam.allowVideoTagging = it },
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ToggleRow(
+                            title = "Motion Tracking Focus",
+                            subtitle = "Tap moving subject to continuously track and keep in focus",
+                            checked = cam.motionTrackingFocus,
+                            onCheckedChange = { cam.motionTrackingFocus = it },
+                        )
+                    }
+                }
+
+                // 7. Preserve Settings Card
+                item(key = "preserve_settings_section") {
+                    SettingsGroupCard(title = "Preserve Settings") {
+                        Text(
+                            text = "Retain previously used camera modes and parameters instead of automatically resetting to default choices when launching the camera.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ToggleRow(
+                            title = "Camera Mode",
+                            subtitle = "Preserve the previously used shooting mode (Photo/Video/Timelapse)",
+                            checked = cam.preserveCameraMode,
+                            onCheckedChange = { cam.preserveCameraMode = it },
+                        )
+                        ToggleRow(
+                            title = "Portrait Focal Length",
+                            subtitle = "Preserve the previously selected camera lens/focal length",
+                            checked = cam.preservePortraitFocalLength,
+                            onCheckedChange = { cam.preservePortraitFocalLength = it },
+                        )
+                        ToggleRow(
+                            title = "Live Moments",
+                            subtitle = "Preserve snapshot photo burst preference during recording",
+                            checked = cam.preserveLiveMoments,
+                            onCheckedChange = { cam.preserveLiveMoments = it },
+                        )
+                        ToggleRow(
+                            title = "Beautify",
+                            subtitle = "Preserve face smoothing and enhancement preferences",
+                            checked = cam.preserveBeautify,
+                            onCheckedChange = { cam.preserveBeautify = it },
+                        )
+                        ToggleRow(
+                            title = "Filters",
+                            subtitle = "Preserve color style and tone adjustments",
+                            checked = cam.preserveFilters,
+                            onCheckedChange = { cam.preserveFilters = it },
+                        )
+                        ToggleRow(
+                            title = "AI Camera",
+                            subtitle = "Preserve intelligent scene detection and OCR sign reading",
+                            checked = cam.preserveAiCamera,
+                            onCheckedChange = { cam.preserveAiCamera = it },
+                        )
+                        ToggleRow(
+                            title = "Auto Night Mode",
+                            subtitle = "Preserve low-light night mode extension choice",
+                            checked = cam.preserveAutoNightMode,
+                            onCheckedChange = { cam.preserveAutoNightMode = it },
+                        )
+                        ToggleRow(
+                            title = "Exposure Compensation",
+                            subtitle = "Preserve custom EV brightness offsets between launches",
+                            checked = cam.preserveExposureCompensation,
+                            onCheckedChange = { cam.preserveExposureCompensation = it },
+                        )
+                        ToggleRow(
+                            title = "Parameters",
+                            subtitle = "Preserve manual ISO, shutter speed, WB Kelvin, and focus distance",
+                            checked = cam.preserveParameters,
+                            onCheckedChange = { cam.preserveParameters = it },
+                        )
+                    }
+                }
+
+                // 8. Hardware Buttons Card
+                item(key = "hardware_buttons_section") {
+                    SettingsGroupCard(title = "Hardware Buttons") {
+                        ChoiceRow("Function of Volume Buttons", cam.volumeButtonAction, VolumeButtonAction.entries) {
+                            cam.volumeButtonAction = it
+                        }
+                    }
+                }
             }
 
-            item(key = "stamp_settings") {
-              Column {
-                SectionHeader("Stamp Settings & Localization")
-                ChoiceRow("Preset Template", StampTemplate.STANDARD, StampTemplate.entries) { settings.applyTemplate(it) }
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    Text("Save / Load Custom Templates", color = RowText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        (1..3).forEach { slot ->
-                            val has = settings.hasCustomTemplate(slot)
-                            OutlinedButton(
-                                onClick = {
-                                    if (has) {
-                                        settings.loadCustomTemplate(slot)
-                                        Toast.makeText(context, "Loaded Template $slot", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        settings.saveCustomTemplate(slot, "Template $slot")
-                                        Toast.makeText(context, "Saved current setup to Template $slot", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = if (has) Accent else Color.White,
-                                ),
-                            ) {
-                                Text(if (has) "Load $slot" else "Save $slot", fontSize = 12.sp)
-                            }
-                        }
-                    }
-                }
-                ChoiceRow("Stamp Language", settings.language, StampLanguage.entries) { settings.language = it }
-                ChoiceRow("Font Style", settings.font, FontStyle.entries) { settings.font = it }
-                ChoiceRow("Stamp Color", settings.color, StampColor.entries) { settings.color = it }
-                ChoiceRow("Background", settings.background, StampBackground.entries) { settings.background = it }
-                ChoiceRow("Stamp Size", settings.size, StampSize.entries) { settings.size = it }
-                ChoiceRow("Stamp Position", settings.position, StampPosition.entries) { settings.position = it }
-                ChoiceRow("Map Position", settings.mapPosition, MapPosition.entries) { settings.mapPosition = it }
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Row {
-                        Text("Map Scale", color = RowText, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                        Text("${settings.mapScalePercent}%", color = SubText)
-                    }
-                    Slider(
-                        value = settings.mapScalePercent.toFloat(),
-                        onValueChange = { settings.mapScalePercent = it.toInt() },
-                        valueRange = 40f..100f,
-                    )
-                }
-                if (cam != null) {
-                    ToggleRow(
-                        title = "Auto-Upload to Google Drive",
-                        subtitle = "Prompts Google Drive upload after every capture",
-                        checked = cam.autoDriveUpload,
-                        onCheckedChange = { cam.autoDriveUpload = it },
-                    )
-                }
+            item(key = "attribution") {
                 Text(
                     "Map tiles © Esri and © OpenStreetMap contributors. Weather by Open-Meteo.com.",
-                    color = SubText, fontSize = 11.sp, modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
-                Spacer(Modifier.height(16.dp))
-              }
-            }
-
-            if (cam != null) {
-              item(key = "display_parameters_section") {
-                Column {
-                  SectionHeader("Display Parameters")
-                  ToggleRow(
-                      title = "Focus Peaking",
-                      subtitle = "Highlight in-focus contrast edges with neon green lines in manual focus",
-                      checked = cam.focusPeaking,
-                      onCheckedChange = { cam.focusPeaking = it },
-                  )
-                  ToggleRow(
-                      title = "Exposure Verification",
-                      subtitle = "Zebra pattern: Blue for underexposed shadows & Red for overexposed highlights",
-                      checked = cam.exposureVerification,
-                      onCheckedChange = { cam.exposureVerification = it },
-                  )
-                  ToggleRow(
-                      title = "Histogram",
-                      subtitle = "Real-time luminance distribution graph on viewfinder",
-                      checked = cam.histogram,
-                      onCheckedChange = { cam.histogram = it },
-                  )
-                }
-              }
-
-              item(key = "video_settings_section") {
-                Column {
-                  SectionHeader("Video Settings")
-                  ChoiceRow("Video Encoder", cam.videoCodec, VideoCodec.entries) { cam.videoCodec = it }
-                  ChoiceRow("Take Photos While Recording", cam.snapshotMode, SnapshotMode.entries) { cam.snapshotMode = it }
-                  ToggleRow(
-                      title = "Auto Frame Rate",
-                      subtitle = "Auto adjust 60 fps to 30/24 fps in low light or high heat",
-                      checked = cam.autoFrameRate,
-                      onCheckedChange = { cam.autoFrameRate = it },
-                  )
-                  ToggleRow(
-                      title = "Allow Tagging Videos",
-                      subtitle = "Show Tag button while recording to bookmark moments with JSON timestamps",
-                      checked = cam.allowVideoTagging,
-                      onCheckedChange = { cam.allowVideoTagging = it },
-                  )
-                  ToggleRow(
-                      title = "Motion Tracking Focus",
-                      subtitle = "Tap moving subject to continuously track and keep in focus",
-                      checked = cam.motionTrackingFocus,
-                      onCheckedChange = { cam.motionTrackingFocus = it },
-                  )
-                }
-              }
-
-              item(key = "preserve_settings_section") {
-                Column {
-                  SectionHeader("Preserve Settings")
-                  Text(
-                      text = "Retain previously used camera modes and parameters instead of automatically resetting to default choices when launching the camera.",
-                      color = SubText,
-                      fontSize = 12.sp,
-                      modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                  )
-                  ToggleRow(
-                      title = "Camera Mode",
-                      subtitle = "Preserve the previously used shooting mode (Photo/Video/Timelapse)",
-                      checked = cam.preserveCameraMode,
-                      onCheckedChange = { cam.preserveCameraMode = it },
-                  )
-                  ToggleRow(
-                      title = "Portrait Focal Length",
-                      subtitle = "Preserve the previously selected camera lens/focal length",
-                      checked = cam.preservePortraitFocalLength,
-                      onCheckedChange = { cam.preservePortraitFocalLength = it },
-                  )
-                  ToggleRow(
-                      title = "Live Moments",
-                      subtitle = "Preserve snapshot photo burst preference during recording",
-                      checked = cam.preserveLiveMoments,
-                      onCheckedChange = { cam.preserveLiveMoments = it },
-                  )
-                  ToggleRow(
-                      title = "Beautify",
-                      subtitle = "Preserve face smoothing and enhancement preferences",
-                      checked = cam.preserveBeautify,
-                      onCheckedChange = { cam.preserveBeautify = it },
-                  )
-                  ToggleRow(
-                      title = "Filters",
-                      subtitle = "Preserve color style and tone adjustments",
-                      checked = cam.preserveFilters,
-                      onCheckedChange = { cam.preserveFilters = it },
-                  )
-                  ToggleRow(
-                      title = "AI Camera",
-                      subtitle = "Preserve intelligent scene detection and OCR sign reading",
-                      checked = cam.preserveAiCamera,
-                      onCheckedChange = { cam.preserveAiCamera = it },
-                  )
-                  ToggleRow(
-                      title = "Auto Night Mode",
-                      subtitle = "Preserve low-light night mode extension choice",
-                      checked = cam.preserveAutoNightMode,
-                      onCheckedChange = { cam.preserveAutoNightMode = it },
-                  )
-                  ToggleRow(
-                      title = "Exposure Compensation",
-                      subtitle = "Preserve custom EV brightness offsets between launches",
-                      checked = cam.preserveExposureCompensation,
-                      onCheckedChange = { cam.preserveExposureCompensation = it },
-                  )
-                  ToggleRow(
-                      title = "Parameters",
-                      subtitle = "Preserve manual ISO, shutter speed, WB Kelvin, and focus distance",
-                      checked = cam.preserveParameters,
-                      onCheckedChange = { cam.preserveParameters = it },
-                  )
-                }
-              }
-
-              item(key = "hardware_buttons_section") {
-                Column {
-                  SectionHeader("Hardware Buttons")
-                  ChoiceRow("Function of Volume Buttons", cam.volumeButtonAction, VolumeButtonAction.entries) {
-                      cam.volumeButtonAction = it
-                  }
-                  Spacer(Modifier.height(32.dp))
-                }
-              }
+                Spacer(Modifier.height(24.dp))
             }
         }
     }
 }
 
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        title, color = Accent, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 6.dp),
-    )
+private fun SettingsGroupCard(title: String, content: @Composable () -> Unit) {
+    ElevatedCard(
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            content()
+        }
+    }
 }
 
 /** Current value shown on the right of each row, like the reference app. */
@@ -550,26 +629,38 @@ private fun valueFor(field: StampField, settings: StampSettings, d: com.geostamp
 @Composable
 private fun FieldRow(settings: StampSettings, field: StampField, data: com.geostamp.camera.data.StampData, onToggle: (Boolean) -> Unit) {
     val on = settings.isEnabled(field)
-    Row(
-        Modifier
+    ListItem(
+        headlineContent = {
+            Text(
+                field.label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        trailingContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    valueFor(field, settings, data),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+                Icon(
+                    if (on) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                    contentDescription = if (on) "Enabled" else "Disabled",
+                    tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggle(!on) }
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            if (on) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
-            contentDescription = if (on) "On" else "Off",
-            tint = if (on) Accent else Color(0xFF616161),
-            modifier = Modifier.size(26.dp),
-        )
-        Spacer(Modifier.width(14.dp))
-        Text(field.label, color = RowText, fontSize = 16.sp, modifier = Modifier.weight(1f))
-        Text(
-            valueFor(field, settings, data), color = SubText, fontSize = 13.sp, maxLines = 1,
-            modifier = Modifier.width(130.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End,
-        )
-    }
+            .clickable { onToggle(!on) },
+    )
 }
 
 @Composable
@@ -580,55 +671,74 @@ private fun InlineField(label: String, value: String, keyboard: KeyboardType = K
         label = { Text(label) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboard),
-        colors = darkFieldColors(),
+        shape = MaterialTheme.shapes.small,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            focusedLabelColor = MaterialTheme.colorScheme.primary,
+            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 56.dp, end = 16.dp, bottom = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
     )
 }
 
 @Composable
-fun darkFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White,
-    focusedBorderColor = Accent,
-    unfocusedBorderColor = Color(0xFF555555),
-    focusedLabelColor = Accent,
-    unfocusedLabelColor = SubText,
-    cursorColor = Accent,
-)
-
-@Composable
 fun <T : Labeled> ChoiceRow(title: String, value: T, options: List<T>, onSelect: (T) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    Row(
-        Modifier
+    ListItem(
+        headlineContent = {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    value.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier
             .fillMaxWidth()
-            .clickable { open = true }
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(title, color = RowText, fontSize = 16.sp, modifier = Modifier.weight(1f))
-        Text(value.label, color = SubText, fontSize = 13.sp, maxLines = 1)
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = SubText)
-    }
+            .clickable { open = true },
+    )
     if (open) {
         AlertDialog(
             onDismissRequest = { open = false },
-            title = { Text(title) },
+            title = { Text(title, style = MaterialTheme.typography.titleLarge) },
+            shape = MaterialTheme.shapes.extraLarge,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     options.forEach { opt ->
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(MaterialTheme.shapes.medium)
                                 .clickable { onSelect(opt); open = false }
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             RadioButton(selected = opt == value, onClick = { onSelect(opt); open = false })
-                            Text(opt.label)
+                            Text(
+                                opt.label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
                         }
                     }
                 }
@@ -640,24 +750,39 @@ fun <T : Labeled> ChoiceRow(title: String, value: T, options: List<T>, onSelect:
 
 @Composable
 private fun ToggleRow(title: String, subtitle: String? = null, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = RowText, fontSize = 16.sp)
-            if (subtitle != null) {
-                Text(subtitle, color = SubText, fontSize = 12.sp)
+    ListItem(
+        headlineContent = {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        supportingContent = if (subtitle != null) {
+            {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
-        )
-    }
+        } else null,
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                thumbContent = if (checked) {
+                    { Icon(Icons.Filled.Check, null, modifier = Modifier.size(SwitchDefaults.IconSize)) }
+                } else null,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) },
+    )
 }

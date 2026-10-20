@@ -17,15 +17,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Camera
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -38,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,11 +59,11 @@ import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampField
 import com.geostamp.camera.data.StampSettings
 import com.geostamp.camera.data.VolumeButtonAction
-import com.geostamp.camera.ui.Accent
 import com.geostamp.camera.ui.CameraScreen
 import com.geostamp.camera.ui.GalleryScreen
 import com.geostamp.camera.ui.GalleryState
 import com.geostamp.camera.ui.SettingsScreen
+import com.geostamp.camera.ui.theme.GeoStampTheme
 
 enum class VolumeKeyEvent { UP, DOWN }
 
@@ -88,13 +96,15 @@ class MainActivity : ComponentActivity() {
 
     private fun showApp() {
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Accent, secondary = Accent)) {
-                Box(
-                    Modifier
+            GeoStampTheme {
+                Surface(
+                    modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black)
                         .safeDrawingPadding(),
-                ) { App(volumeKeyTrigger = volumeKeyTrigger) }
+                    color = MaterialTheme.colorScheme.background,
+                ) {
+                    App(volumeKeyTrigger = volumeKeyTrigger)
+                }
             }
         }
     }
@@ -194,31 +204,74 @@ private fun App(volumeKeyTrigger: kotlinx.coroutines.flow.SharedFlow<VolumeKeyEv
 @Composable
 private fun PermissionScreen(showSettings: Boolean, onRequest: () -> Unit, onGallery: () -> Unit) {
     val context = LocalContext.current
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
     ) {
-        Text("GeoStamp Camera", color = Color.White, fontSize = 24.sp)
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "Camera access is needed to take photos. Location is used for the address, map and weather on the stamp.",
-            color = Color.LightGray, textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onRequest, colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black)) {
-            Text("Allow access")
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+            ) {
+                Column(
+                    modifier = Modifier.padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Filled.Camera,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    )
+                    Text(
+                        "GeoStamp Camera",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Camera access is needed to capture photos and video. Location access enables precise coordinates, address, map tiles, altitude, and weather stamping.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(28.dp))
+                    Button(
+                        onClick = onRequest,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Text("Grant Permissions", style = MaterialTheme.typography.labelLarge)
+                    }
+                    if (showSettings) {
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(
+                            onClick = {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Open App Settings")
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            OutlinedButton(
+                onClick = onGallery,
+                shape = MaterialTheme.shapes.medium,
+            ) {
+                Text("Stamp Gallery Photos Instead")
+            }
         }
-        if (showSettings) {
-            TextButton(onClick = {
-                context.startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
-                )
-            }) { Text("Open app settings", color = Accent) }
-        }
-        TextButton(onClick = onGallery) { Text("Stamp gallery photos instead", color = Color.White) }
     }
 }

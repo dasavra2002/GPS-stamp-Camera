@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -67,9 +69,6 @@ import kotlin.math.roundToInt
 
 enum class Panel { FPS, SHUTTER, ISO, EV, WB, FOCUS, FORMAT, DISPLAY }
 
-private val BarBg = Color(0xFF0E0E0E)
-private val Dim = Color(0xFF8A8A8A)
-private val ManualColor = Color(0xFFFFC107)
 private val Mono = FontFamily.Monospace
 
 // ------------------------------------------------------------------------------------------
@@ -102,44 +101,56 @@ fun InfoBar(
         else -> "${manual.wb.nominalK}K"
     }
 
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(BarBg)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.88f),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        @Composable
-        fun seg(title: String, value: String, isManual: Boolean, panel: Panel) {
-            val active = open == panel
-            Column(
-                Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (active) Color(0xFF2A2A2A) else Color.Transparent)
-                    .clickable(enabled = enabled) { onOpen(if (active) null else panel) }
-                    .padding(horizontal = 9.dp, vertical = 3.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(title + if (!isManual) " A" else "", color = Dim, fontSize = 9.sp, fontFamily = Mono)
-                Text(
-                    value,
-                    color = if (isManual) ManualColor else Color.White,
-                    fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono, maxLines = 1,
-                )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            @Composable
+            fun seg(title: String, value: String, isManual: Boolean, panel: Panel) {
+                val active = open == panel
+                Column(
+                    Modifier
+                        .clip(MaterialTheme.shapes.extraSmall)
+                        .background(if (active) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent)
+                        .clickable(enabled = enabled) { onOpen(if (active) null else panel) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        title + if (!isManual) " A" else "",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 9.sp,
+                        fontFamily = Mono,
+                    )
+                    Text(
+                        value,
+                        color = if (isManual) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = Mono,
+                        maxLines = 1,
+                    )
+                }
             }
+            if (mode == CaptureMode.VIDEO) seg("FPS", "$fps", true, Panel.FPS)
+            seg(if (mode == CaptureMode.VIDEO) "SHUTTER" else "SPEED", shutterText, manual.shutterNs != null, Panel.SHUTTER)
+            seg("ISO", iso?.toString() ?: "--", manual.iso != null, Panel.ISO)
+            if (!manual.exposureManual) seg("EV", String.format(Locale.US, "%+d", manual.ev), manual.ev != 0, Panel.EV)
+            seg("WB", wbText, manual.wb != WbMode.AUTO, Panel.WB)
+            if (manual.wb == WbMode.KELVIN) seg("TINT", String.format(Locale.US, "%+d", manual.tint), true, Panel.WB)
+            if (sensor.manualFocus || manual.focusDiopters != null) {
+                seg("FOCUS", Manual.focusLabel(manual.focusDiopters), manual.focusDiopters != null, Panel.FOCUS)
+            }
+            seg("FORMAT", formatText, true, Panel.FORMAT)
+            seg("VIEW", "▦", true, Panel.DISPLAY)
         }
-        if (mode == CaptureMode.VIDEO) seg("FPS", "$fps", true, Panel.FPS)
-        seg(if (mode == CaptureMode.VIDEO) "SHUTTER" else "SPEED", shutterText, manual.shutterNs != null, Panel.SHUTTER)
-        seg("ISO", iso?.toString() ?: "--", manual.iso != null, Panel.ISO)
-        if (!manual.exposureManual) seg("EV", String.format(Locale.US, "%+d", manual.ev), manual.ev != 0, Panel.EV)
-        seg("WB", wbText, manual.wb != WbMode.AUTO, Panel.WB)
-        if (manual.wb == WbMode.KELVIN) seg("TINT", String.format(Locale.US, "%+d", manual.tint), true, Panel.WB)
-        if (sensor.manualFocus || manual.focusDiopters != null) {
-            seg("FOCUS", Manual.focusLabel(manual.focusDiopters), manual.focusDiopters != null, Panel.FOCUS)
-        }
-        seg("FORMAT", formatText, true, Panel.FORMAT)
-        seg("VIEW", "▦", true, Panel.DISPLAY)
     }
 }
 
@@ -149,21 +160,32 @@ fun InfoBar(
 
 @Composable
 fun ProChip(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-    Text(
-        text,
+    Surface(
+        shape = MaterialTheme.shapes.small,
         color = when {
-            !enabled -> Color(0xFF555555)
-            selected -> Color.Black
-            else -> Color.White
+            !enabled -> MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.4f)
+            selected -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh
         },
-        fontSize = 13.sp,
-        fontFamily = Mono,
-        modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (selected) ManualColor else Color(0x26FFFFFF))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 6.dp),
-    )
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+        ),
+        modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Text(
+            text,
+            color = when {
+                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                selected -> MaterialTheme.colorScheme.onPrimary
+                else -> MaterialTheme.colorScheme.onSurface
+            },
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = Mono,
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+        )
+    }
 }
 
 @Composable
@@ -180,7 +202,13 @@ private fun ChipRow(content: @Composable () -> Unit) {
 
 @Composable
 private fun PanelLabel(text: String) {
-    Text(text, color = Dim, fontSize = 11.sp, fontFamily = Mono, modifier = Modifier.padding(start = 14.dp, top = 6.dp))
+    Text(
+        text,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelSmall,
+        fontFamily = Mono,
+        modifier = Modifier.padding(start = 14.dp, top = 6.dp),
+    )
 }
 
 @Composable
@@ -190,7 +218,11 @@ private fun ProSlider(value: Float, range: ClosedFloatingPointRange<Float>, step
         onValueChange = onChange,
         valueRange = range,
         steps = steps,
-        colors = SliderDefaults.colors(thumbColor = ManualColor, activeTrackColor = ManualColor),
+        colors = SliderDefaults.colors(
+            thumbColor = MaterialTheme.colorScheme.primary,
+            activeTrackColor = MaterialTheme.colorScheme.primary,
+            inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
         modifier = Modifier.padding(horizontal = 14.dp),
     )
 }
@@ -207,13 +239,18 @@ fun ControlPanel(
     evRange: IntRange?,
     photoSizes: List<Size>,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(Color(0xF2121212))
-            .padding(vertical = 6.dp),
+    Surface(
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+        tonalElevation = 6.dp,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        when (panel) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+        ) {
+            when (panel) {
             Panel.FPS -> {
                 PanelLabel("FRAME RATE")
                 ChipRow { sensor.fpsOptions.forEach { f -> ProChip("$f", cam.fps == f) { cam.fps = f } } }
@@ -367,6 +404,7 @@ fun ControlPanel(
                     ProChip("Level", cam.level) { cam.level = !cam.level }
                     ProChip("Reset manual", false) { manual.resetAll() }
                 }
+            }
             }
         }
     }
