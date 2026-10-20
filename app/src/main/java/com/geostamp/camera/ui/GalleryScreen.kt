@@ -258,7 +258,7 @@ fun GalleryScreen(
         val uri = withContext(Dispatchers.Default) {
             try {
                 val bmp = PhotoComposer.decodeUri(context, item.uri)
-                val stamped = PhotoComposer.compose(bmp, cfg, item.data, item.time, item.meta.camera)
+                val stamped = PhotoComposer.compose(bmp, cfg, item.data, item.time, item.meta.camera, item.meta.shotParams)
                 val base = item.name.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
                 PhotoSaver.save(context, stamped, item.data, item.time, prefix = "Stamped_$base", subFolder = cfg.siteName.ifBlank { null }).also {
                     stamped.recycle()
@@ -499,7 +499,7 @@ fun GalleryScreen(
                                         val w = minOf(1200, full.width)
                                         val small = Bitmap.createScaledBitmap(full, w, (full.height.toLong() * w / full.width).toInt().coerceAtLeast(1), true)
                                         if (small !== full) full.recycle()
-                                        PhotoComposer.compose(small, cfg, item.data, item.time, item.meta.camera)
+                                        PhotoComposer.compose(small, cfg, item.data, item.time, item.meta.camera, item.meta.shotParams)
                                     }.getOrNull()
                                 }
                             }

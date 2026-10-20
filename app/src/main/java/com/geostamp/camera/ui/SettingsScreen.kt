@@ -24,8 +24,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -79,7 +81,10 @@ import com.geostamp.camera.data.StampPosition
 import com.geostamp.camera.data.StampSettings
 import com.geostamp.camera.data.StampSize
 import com.geostamp.camera.data.StampTemplate
+import com.geostamp.camera.data.WatermarkStyle
+import com.geostamp.camera.stamp.FrameWatermarkRenderer
 import com.geostamp.camera.stamp.PhotoComposer
+import com.geostamp.camera.stamp.ShotParams
 import com.geostamp.camera.stamp.WatermarkRenderer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -104,7 +109,19 @@ fun SettingsScreen(
 
     LaunchedEffect(data, config) {
         preview = withContext(Dispatchers.Default) {
-            WatermarkRenderer.render(PhotoComposer.stampWidthFor(1080, 1440, StampSize.LARGE), config, data, ZonedDateTime.now(), "Back · Wide", preview = true)
+            if (config.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
+                val dummy = Bitmap.createBitmap(1080, 810, Bitmap.Config.ARGB_8888).apply {
+                    val canvas = android.graphics.Canvas(this)
+                    val p = android.graphics.Paint().apply { color = android.graphics.Color.DKGRAY }
+                    canvas.drawRect(0f, 0f, 1080f, 810f, p)
+                }
+                val sampleShot = ShotParams(focalMm = 26, aperture = 1.5f, shutterNs = 333333333L, iso = 12800, model = config.deviceBrand)
+                val framed = FrameWatermarkRenderer.render(dummy, config, data, ZonedDateTime.now(), sampleShot)
+                if (dummy !== framed && !dummy.isRecycled) dummy.recycle()
+                framed
+            } else {
+                WatermarkRenderer.render(PhotoComposer.stampWidthFor(1080, 1440, StampSize.LARGE), config, data, ZonedDateTime.now(), "Back · Wide", preview = true)
+            }
         }
     }
 
@@ -214,6 +231,74 @@ fun SettingsScreen(
                     }
                   }
                 }
+            }
+
+            item(key = "watermark_style_section") {
+              Column {
+                SectionHeader("Watermark & Photo Frame Style")
+                ChoiceRow("Frame Style", settings.watermarkStyle, WatermarkStyle.entries) {
+                    settings.watermarkStyle = it
+                }
+                if (settings.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
+                    InlineField("Device Brand / Name", settings.deviceBrand) { settings.deviceBrand = it }
+                    InlineField("Device Badge (e.g. Pro, Ultra)", settings.deviceBadge) { settings.deviceBadge = it }
+                    InlineField("Custom Motto / Subtitle", settings.customMotto) { settings.customMotto = it }
+
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Show EXIF Parameters", color = RowText, fontSize = 16.sp)
+                            Text("Focal length, aperture, shutter speed, ISO", color = SubText, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = settings.showExifParams,
+                            onCheckedChange = { settings.showExifParams = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
+                        )
+                    }
+
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Show GPS & City on Frame", color = RowText, fontSize = 16.sp)
+                            Text("Coordinates, altitude, and location name", color = SubText, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = settings.showGpsOnFrame,
+                            onCheckedChange = { settings.showGpsOnFrame = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
+                        )
+                    }
+
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Show Avatar / Logo", color = RowText, fontSize = 16.sp)
+                            Text("Custom logo or photographer profile silhouette", color = SubText, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = settings.showAvatarOnFrame,
+                            onCheckedChange = { settings.showAvatarOnFrame = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Accent),
+                        )
+                    }
+                }
+              }
             }
 
             item(key = "stamp_settings") {
@@ -408,7 +493,7 @@ fun <T : Labeled> ChoiceRow(title: String, value: T, options: List<T>, onSelect:
             onDismissRequest = { open = false },
             title = { Text(title) },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     options.forEach { opt ->
                         Row(
                             Modifier

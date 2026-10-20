@@ -128,6 +128,21 @@ enum class StampTemplate(override val label: String) : Labeled {
     MINIMAL("Minimal (GPS & Time Only)"),
 }
 
+enum class WatermarkStyle(override val label: String) : Labeled {
+    CLASSIC_GEO_BADGE("Classic GeoData Card"),
+    STUDIO_WHITE_BAR("Studio White Bottom Bar"),
+    ACCENT_BLOCK_BAR("Yellow Accent Block Bar"),
+    ACCENT_STRIPE_BAR("Yellow Stripe Dark Bar"),
+    AVATAR_WHITE_BAR("Avatar White Bottom Bar"),
+    EXHIBITION_WHITE_MAT("Exhibition White Mat Frame"),
+    FILM_STRIP_35MM("35mm Negative Film Strip"),
+    SIGNATURE_YELLOW_MAT("Signature Yellow Mat"),
+    LUXURY_BLACK_MAT("Luxury Black Matte Frame"),
+    RETRO_VINTAGE_FILM("Retro Vintage Film Frame"),
+    EDITORIAL_TYPOGRAPHY("Editorial Multi-Line"),
+    POLAROID_SIDEBAR("Polaroid Right Sidebar"),
+}
+
 /** Immutable copy of the settings, safe to hand to background rendering. */
 data class StampConfig(
     val enabled: Set<StampField>,
@@ -152,6 +167,13 @@ data class StampConfig(
     val coordinateFormat: CoordinateFormat = CoordinateFormat.DECIMAL,
     val language: StampLanguage = StampLanguage.ENGLISH,
     val logo: Bitmap?,
+    val watermarkStyle: WatermarkStyle = WatermarkStyle.CLASSIC_GEO_BADGE,
+    val deviceBrand: String = "POCO X7",
+    val deviceBadge: String = "Pro",
+    val customMotto: String = "Always believe that something wonderful is about to happen",
+    val showExifParams: Boolean = true,
+    val showGpsOnFrame: Boolean = true,
+    val showAvatarOnFrame: Boolean = true,
 ) {
     fun has(f: StampField) = f in enabled
 }
@@ -399,6 +421,41 @@ class StampSettings(private val context: Context) {
         return bmp
     }
 
+    private val watermarkStyleState = enumState("watermark_style", WatermarkStyle.CLASSIC_GEO_BADGE, WatermarkStyle.entries)
+    var watermarkStyle: WatermarkStyle
+        get() = watermarkStyleState.value
+        set(v) = putEnum("watermark_style", watermarkStyleState, v)
+
+    private val deviceBrandState = mutableStateOf(prefs.getString("device_brand", android.os.Build.MODEL ?: "POCO X7") ?: "POCO X7")
+    var deviceBrand: String
+        get() = deviceBrandState.value
+        set(v) { deviceBrandState.value = v; prefs.edit().putString("device_brand", v).apply() }
+
+    private val deviceBadgeState = mutableStateOf(prefs.getString("device_badge", "Pro") ?: "Pro")
+    var deviceBadge: String
+        get() = deviceBadgeState.value
+        set(v) { deviceBadgeState.value = v; prefs.edit().putString("device_badge", v).apply() }
+
+    private val customMottoState = mutableStateOf(prefs.getString("custom_motto", "Always believe that something wonderful is about to happen") ?: "Always believe that something wonderful is about to happen")
+    var customMotto: String
+        get() = customMottoState.value
+        set(v) { customMottoState.value = v; prefs.edit().putString("custom_motto", v).apply() }
+
+    private val showExifParamsState = mutableStateOf(prefs.getBoolean("show_exif_params", true))
+    var showExifParams: Boolean
+        get() = showExifParamsState.value
+        set(v) { showExifParamsState.value = v; prefs.edit().putBoolean("show_exif_params", v).apply() }
+
+    private val showGpsOnFrameState = mutableStateOf(prefs.getBoolean("show_gps_on_frame", true))
+    var showGpsOnFrame: Boolean
+        get() = showGpsOnFrameState.value
+        set(v) { showGpsOnFrameState.value = v; prefs.edit().putBoolean("show_gps_on_frame", v).apply() }
+
+    private val showAvatarOnFrameState = mutableStateOf(prefs.getBoolean("show_avatar_on_frame", true))
+    var showAvatarOnFrame: Boolean
+        get() = showAvatarOnFrameState.value
+        set(v) { showAvatarOnFrameState.value = v; prefs.edit().putBoolean("show_avatar_on_frame", v).apply() }
+
     fun snapshot(): StampConfig = StampConfig(
         enabled = StampField.entries.filter { isEnabled(it) }.toSet(),
         note = note,
@@ -422,6 +479,13 @@ class StampSettings(private val context: Context) {
         coordinateFormat = coordinateFormat,
         language = language,
         logo = logo,
+        watermarkStyle = watermarkStyle,
+        deviceBrand = deviceBrand,
+        deviceBadge = deviceBadge,
+        customMotto = customMotto,
+        showExifParams = showExifParams,
+        showGpsOnFrame = showGpsOnFrame,
+        showAvatarOnFrame = showAvatarOnFrame,
     )
 
     // ---- helpers ----

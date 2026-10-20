@@ -20,6 +20,7 @@ import com.geostamp.camera.data.StampConfig
 import com.geostamp.camera.data.StampData
 import com.geostamp.camera.data.StampPosition
 import com.geostamp.camera.data.StampSize
+import com.geostamp.camera.data.WatermarkStyle
 import java.io.File
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -113,7 +114,17 @@ object PhotoComposer {
         return out
     }
 
-    fun compose(photo: Bitmap, config: StampConfig, data: StampData, time: ZonedDateTime, cameraLabel: String?): Bitmap {
+    fun compose(
+        photo: Bitmap,
+        config: StampConfig,
+        data: StampData,
+        time: ZonedDateTime,
+        cameraLabel: String?,
+        shotParams: ShotParams? = null,
+    ): Bitmap {
+        if (config.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
+            return FrameWatermarkRenderer.render(photo, config, data, time, shotParams)
+        }
         val out = if (photo.isMutable) photo else photo.copy(Bitmap.Config.ARGB_8888, true).also { photo.recycle() }
         val sw = stampWidthFor(out.width, out.height, config.size)
         val stamp = WatermarkRenderer.render(sw, config, data, time, cameraLabel) ?: return out

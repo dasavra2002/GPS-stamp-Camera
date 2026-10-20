@@ -28,6 +28,7 @@ data class PhotoMeta(
     val timeFromExif: Boolean = false,
     val direction: Float? = null,
     val camera: String? = null,
+    val shotParams: ShotParams? = null,
 ) {
     val hasLocation get() = latitude != null && longitude != null
 }
@@ -72,6 +73,7 @@ object GalleryStamper {
         var dir: Float? = null
         var time: ZonedDateTime? = null
         var camera: String? = null
+        var shotParams: ShotParams? = null
 
         if (exif != null) {
             exif.latLong?.let { ll ->
@@ -80,7 +82,9 @@ object GalleryStamper {
             if (exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE) != null) alt = exif.getAltitude(0.0)
             val d = exif.getAttributeDouble(ExifInterface.TAG_GPS_IMG_DIRECTION, Double.NaN)
             if (!d.isNaN()) dir = d.toFloat()
-            camera = listOfNotNull(exif.getAttribute(ExifInterface.TAG_MAKE), exif.getAttribute(ExifInterface.TAG_MODEL))
+            val make = exif.getAttribute(ExifInterface.TAG_MAKE)
+            val model = exif.getAttribute(ExifInterface.TAG_MODEL)
+            camera = listOfNotNull(make, model)
                 .joinToString(" ").ifBlank { null }
 
             val raw = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
@@ -88,11 +92,37 @@ object GalleryStamper {
             val offset = exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL)
                 ?: exif.getAttribute(ExifInterface.TAG_OFFSET_TIME)
             time = parseExifDateTime(raw, offset)
+
+            val focal35 = exif.getAttributeDouble(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, Double.NaN)
+            val focal = if (!focal35.isNaN() && focal35 > 0.0) {
+                focal35.toInt()
+            } else {
+                val fReal = exif.getAttributeDouble(ExifInterface.TAG_FOCAL_LENGTH, Double.NaN)
+                if (!fReal.isNaN() && fReal > 0.0) fReal.toInt() else null
+            }
+            val fNumber = exif.getAttributeDouble(ExifInterface.TAG_F_NUMBER, Double.NaN)
+            val aperture = if (!fNumber.isNaN() && fNumber > 0.0) fNumber.toFloat() else null
+
+            val expSec = exif.getAttributeDouble(ExifInterface.TAG_EXPOSURE_TIME, Double.NaN)
+            val shutterNs = if (!expSec.isNaN() && expSec > 0.0) (expSec * 1_000_000_000.0).toLong() else null
+
+            val isoVal = exif.getAttributeInt(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, -1).let {
+                if (it > 0) it else exif.getAttributeInt(ExifInterface.TAG_ISO_SPEED_RATINGS, -1).takeIf { i -> i > 0 }
+            }
+            val modelName = model?.trim()?.ifBlank { null } ?: camera
+
+            shotParams = ShotParams(
+                focalMm = focal,
+                aperture = aperture,
+                shutterNs = shutterNs,
+                iso = isoVal,
+                model = modelName,
+            )
         }
         val fromExif = time != null
         if (time == null) time = fileTime(context, uri)
 
-        return PhotoMeta(lat, lon, alt, time, fromExif, dir, camera)
+        return PhotoMeta(lat, lon, alt, time, fromExif, dir, camera, shotParams)
     }
 
     /** Parses EXIF date/time strings with fallbacks for alternative separators (: / - T). */

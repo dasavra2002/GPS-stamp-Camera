@@ -91,6 +91,7 @@ data class LensInfo(
     val equivFocalMm: Int?,
     val label: String,
     val shortLabel: String,
+    val aperture: Float? = null,
 ) {
     val isFront get() = facing == CameraCharacteristics.LENS_FACING_FRONT
 }
@@ -273,7 +274,7 @@ class CameraController(private val context: Context) {
     }
 
     private fun listLenses(infos: List<CameraInfo>): List<LensInfo> {
-        data class Raw(val id: String, val facing: Int, val eq: Int?)
+        data class Raw(val id: String, val facing: Int, val eq: Int?, val aperture: Float?)
 
         val raws = infos.mapNotNull { info ->
             try {
@@ -281,12 +282,13 @@ class CameraController(private val context: Context) {
                 val facing = c2.getCameraCharacteristic(CameraCharacteristics.LENS_FACING)
                     ?: CameraCharacteristics.LENS_FACING_EXTERNAL
                 val focal = c2.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+                val aperture = c2.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)?.firstOrNull()
                 val sensor: SizeF? = c2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
                 val eq = if (focal != null && sensor != null && sensor.width > 0f) {
                     val diag = sqrt(sensor.width * sensor.width + sensor.height * sensor.height)
                     (focal * 43.27f / diag).roundToInt() // 35 mm-equivalent focal length
                 } else null
-                Raw(c2.cameraId, facing, eq)
+                Raw(c2.cameraId, facing, eq, aperture)
             } catch (e: Exception) {
                 null
             }
@@ -322,6 +324,7 @@ class CameraController(private val context: Context) {
                 equivFocalMm = r.eq,
                 label = "$kind$mm (id ${r.id})",
                 shortLabel = if (zoomHint != null && kind != "Back") "$kind $zoomHint" else kind,
+                aperture = r.aperture,
             )
         }
         return lenses.sortedWith(

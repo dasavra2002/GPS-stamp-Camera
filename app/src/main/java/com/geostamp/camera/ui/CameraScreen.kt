@@ -113,6 +113,7 @@ import com.geostamp.camera.data.VideoColor
 import com.geostamp.camera.data.VideoRes
 import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.PhotoSaver
+import com.geostamp.camera.stamp.ShotParams
 import com.geostamp.camera.stamp.WatermarkRenderer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -371,9 +372,16 @@ fun CameraScreen(
         val time = ZonedDateTime.now()
         val cfg = settings.snapshot()
         val d = stampDataFor(lens)
+        val shotParams = ShotParams(
+            focalMm = lens.equivFocalMm,
+            aperture = lens.aperture,
+            shutterNs = readout.exposureNs,
+            iso = readout.iso,
+            model = cfg.deviceBrand.ifBlank { null },
+        )
         val result = withContext(Dispatchers.Default) {
             val bmp = if (photoCrop) PhotoComposer.cropToAspect(bmp0, cam.photoAspect.ratio) else bmp0
-            val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label)
+            val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label, shotParams)
             val uri = PhotoSaver.save(context, stamped, d, time, subFolder = cfg.siteName.ifBlank { null })
             val thumbW = 240
             val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
@@ -612,9 +620,16 @@ fun CameraScreen(
                     val time = ZonedDateTime.now()
                     val cfg = settings.snapshot()
                     val d = stampDataFor(lens)
+                    val shotParams = ShotParams(
+                        focalMm = lens.equivFocalMm,
+                        aperture = lens.aperture,
+                        shutterNs = readout.exposureNs,
+                        iso = readout.iso,
+                        model = cfg.deviceBrand.ifBlank { null },
+                    )
                     val frameUri = withContext(Dispatchers.Default) {
                         val bmp = if (photoCrop) PhotoComposer.cropToAspect(rawBmp, cam.photoAspect.ratio) else rawBmp
-                        val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label)
+                        val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label, shotParams)
                         val uri = PhotoSaver.save(context, stamped, d, time, prefix = "Frame", subFolder = sub)
                         val thumbW = 240
                         val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
