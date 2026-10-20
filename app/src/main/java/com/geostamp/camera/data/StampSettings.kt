@@ -143,6 +143,11 @@ enum class WatermarkStyle(override val label: String) : Labeled {
     POLAROID_SIDEBAR("Polaroid Right Sidebar"),
 }
 
+enum class FrameDataDensity(override val label: String) : Labeled {
+    MINIMAL("Compact / Minimal (Specs & Date)"),
+    FULL("Full Information (Weather, Sensors, Site & All Fields)"),
+}
+
 /** Immutable copy of the settings, safe to hand to background rendering. */
 data class StampConfig(
     val enabled: Set<StampField>,
@@ -168,6 +173,7 @@ data class StampConfig(
     val language: StampLanguage = StampLanguage.ENGLISH,
     val logo: Bitmap?,
     val watermarkStyle: WatermarkStyle = WatermarkStyle.CLASSIC_GEO_BADGE,
+    val frameDataDensity: FrameDataDensity = FrameDataDensity.MINIMAL,
     val deviceBrand: String = "POCO X7",
     val deviceBadge: String = "Pro",
     val customMotto: String = "Always believe that something wonderful is about to happen",
@@ -426,6 +432,11 @@ class StampSettings(private val context: Context) {
         get() = watermarkStyleState.value
         set(v) = putEnum("watermark_style", watermarkStyleState, v)
 
+    private val frameDataDensityState = enumState("frame_data_density", FrameDataDensity.MINIMAL, FrameDataDensity.entries)
+    var frameDataDensity: FrameDataDensity
+        get() = frameDataDensityState.value
+        set(v) = putEnum("frame_data_density", frameDataDensityState, v)
+
     private val deviceBrandState = mutableStateOf(prefs.getString("device_brand", android.os.Build.MODEL ?: "POCO X7") ?: "POCO X7")
     var deviceBrand: String
         get() = deviceBrandState.value
@@ -480,6 +491,7 @@ class StampSettings(private val context: Context) {
         language = language,
         logo = logo,
         watermarkStyle = watermarkStyle,
+        frameDataDensity = frameDataDensity,
         deviceBrand = deviceBrand,
         deviceBadge = deviceBadge,
         customMotto = customMotto,

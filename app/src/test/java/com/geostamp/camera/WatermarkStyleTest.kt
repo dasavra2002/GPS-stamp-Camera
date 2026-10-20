@@ -90,6 +90,7 @@ class WatermarkStyleTest {
             dateFormat = com.geostamp.camera.data.DateFormat.DMY_24,
             logo = null,
             watermarkStyle = WatermarkStyle.FILM_STRIP_35MM,
+            frameDataDensity = com.geostamp.camera.data.FrameDataDensity.FULL,
             deviceBrand = "Xiaomi 14",
             deviceBadge = "Ultra",
             customMotto = "Captured with Leica Summilux",
@@ -98,11 +99,53 @@ class WatermarkStyleTest {
             showAvatarOnFrame = true,
         )
         assertEquals(WatermarkStyle.FILM_STRIP_35MM, config.watermarkStyle)
+        assertEquals(com.geostamp.camera.data.FrameDataDensity.FULL, config.frameDataDensity)
         assertEquals("Xiaomi 14", config.deviceBrand)
         assertEquals("Ultra", config.deviceBadge)
         assertEquals("Captured with Leica Summilux", config.customMotto)
         assertTrue(config.showExifParams)
         assertFalse(config.showGpsOnFrame)
         assertTrue(config.showAvatarOnFrame)
+    }
+
+    @Test
+    fun testFrameWatermarkRendererDataLines() {
+        val enabledFields = setOf(
+            com.geostamp.camera.data.StampField.TEMPERATURE,
+            com.geostamp.camera.data.StampField.HUMIDITY,
+            com.geostamp.camera.data.StampField.PROJECT,
+            com.geostamp.camera.data.StampField.NUMBERING,
+        )
+        val config = com.geostamp.camera.data.StampConfig(
+            enabled = enabledFields,
+            note = "",
+            personName = "",
+            phone = "",
+            siteName = "Central Hub",
+            number = 42,
+            mapType = com.geostamp.camera.data.MapType.STREET,
+            font = com.geostamp.camera.data.FontStyle.SANS,
+            color = com.geostamp.camera.data.StampColor.WHITE,
+            background = com.geostamp.camera.data.StampBackground.DARK,
+            size = com.geostamp.camera.data.StampSize.MEDIUM,
+            position = com.geostamp.camera.data.StampPosition.BOTTOM,
+            mapPosition = com.geostamp.camera.data.MapPosition.RIGHT,
+            mapScalePercent = 100,
+            dateFormat = com.geostamp.camera.data.DateFormat.DMY_24,
+            logo = null,
+            frameDataDensity = com.geostamp.camera.data.FrameDataDensity.FULL,
+        )
+        val data = com.geostamp.camera.data.StampData(
+            temperatureC = 27.5,
+            humidity = 68,
+        )
+
+        val weather = com.geostamp.camera.stamp.FrameWatermarkRenderer.buildWeatherAndSensorsLine(data, config)
+        assertTrue(weather.contains("27.5°C"))
+        assertTrue(weather.contains("68%"))
+
+        val work = com.geostamp.camera.stamp.FrameWatermarkRenderer.buildWorkAndProjectLine(config, "Back")
+        assertTrue(work.contains("#0042"))
+        assertTrue(work.contains("Site: Central Hub"))
     }
 }

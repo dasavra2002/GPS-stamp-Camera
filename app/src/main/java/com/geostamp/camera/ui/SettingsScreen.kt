@@ -82,6 +82,7 @@ import com.geostamp.camera.data.StampSettings
 import com.geostamp.camera.data.StampSize
 import com.geostamp.camera.data.StampTemplate
 import com.geostamp.camera.data.WatermarkStyle
+import com.geostamp.camera.data.FrameDataDensity
 import com.geostamp.camera.stamp.FrameWatermarkRenderer
 import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.ShotParams
@@ -240,6 +241,9 @@ fun SettingsScreen(
                     settings.watermarkStyle = it
                 }
                 if (settings.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
+                    ChoiceRow("Information Density", settings.frameDataDensity, FrameDataDensity.entries) {
+                        settings.frameDataDensity = it
+                    }
                     InlineField("Device Brand / Name", settings.deviceBrand) { settings.deviceBrand = it }
                     InlineField("Device Badge (e.g. Pro, Ultra)", settings.deviceBadge) { settings.deviceBadge = it }
                     InlineField("Custom Motto / Subtitle", settings.customMotto) { settings.customMotto = it }

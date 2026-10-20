@@ -123,7 +123,7 @@ object PhotoComposer {
         shotParams: ShotParams? = null,
     ): Bitmap {
         if (config.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
-            return FrameWatermarkRenderer.render(photo, config, data, time, shotParams)
+            return FrameWatermarkRenderer.render(photo, config, data, time, shotParams, cameraLabel)
         }
         val out = if (photo.isMutable) photo else photo.copy(Bitmap.Config.ARGB_8888, true).also { photo.recycle() }
         val sw = stampWidthFor(out.width, out.height, config.size)
