@@ -21,7 +21,7 @@ All major architecture and feature items identified across the project reviews a
    - **Professional Framed Card:** Full technical border with camera parameters, map, and verification box.
    - **Minimal Film Strip / Technical:** Clean tabular layout with mono font hierarchy.
 2. **Compact vs. Full Information Modes:** User-selectable density toggle preserving clean compositions or displaying complete telemetry.
-3. **Cryptographic Tamper-Proof QR Code:** Encodes an authenticated payload containing latitude, longitude, epoch timestamp, and SHA-256 HMAC digital signature for instant verification against photo alteration or spoofing.
+3. **Signed Capture Proof (replaces the earlier QR "signature"):** Photos are signed with a hardware-backed Android Keystore key over the image data and capture metadata, with key attestation, and checked on the Verify photo screen. The QR code is now a readable summary only.
 4. **Expanded Coordinate Formats:** Full mathematical conversion support for Decimal Degrees (DD), Degrees-Minutes-Seconds (DMS), UTM (Universal Transverse Mercator), and MGRS (Military Grid Reference System).
 5. **13-Language Watermark Localization:** Complete localization dictionary covering English, Hindi, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Spanish, French, German, and Arabic.
 
@@ -104,7 +104,8 @@ All major architecture and feature items identified across the project reviews a
 | `PlusCodeTest.kt` | Verifies Open Location Code generation against real-world coordinates | ✅ Passing |
 | `CoordinateConverterTest.kt` | Verifies DD, DMS, UTM, and MGRS conversions | ✅ Passing |
 | `ExifParsingTest.kt` | Tests EXIF tag parsing, altitude calculations, and orientation | ✅ Passing |
-| `TamperProofSignerTest.kt` | Validates cryptographic signatures, payload packing, and validation | ✅ Passing |
+| `CaptureProofTest.kt` | Validates image hashing, ECDSA proof signing/tamper detection, XMP storage and attestation parsing | ✅ Passing |
+| `StampQrCodeTest.kt` | Validates the on-stamp QR text | ✅ Passing |
 | `WatermarkStyleTest.kt` | Tests watermark layout engines and compact/full density modes | ✅ Passing |
 | `ReportGeneratorTest.kt` | Tests CSV formatting, KML coordinates, and PDF page count logic | ✅ Passing |
 | `CameraFeatureListTest.kt` | Tests volume key bindings, preserve settings toggles, and video codecs | ✅ Passing |

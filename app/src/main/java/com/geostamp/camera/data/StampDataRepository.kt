@@ -164,6 +164,7 @@ class StampDataRepository(
                 // On Android 14+ the sea-level altitude is filled in below instead.
                 altitude = if (!loc.hasAltitude()) null else if (mslCapable && it.altitude != null) it.altitude else loc.altitude,
                 accuracyM = if (loc.hasAccuracy()) loc.accuracy else null,
+                locationSource = if (loc.provider == "Bluetooth_RTK") "bluetooth-gnss" else "phone-gps",
                 plusCode = PlusCode.encode(loc.latitude, loc.longitude),
             )
         }

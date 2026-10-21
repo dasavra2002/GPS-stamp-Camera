@@ -1188,10 +1188,10 @@ object FrameWatermarkRenderer {
         config: StampConfig,
         cornerRadius: Float = 10f,
     ) {
-        val payload = TamperProofSigner.buildPayload(
+        val payload = StampQrCode.buildPayload(
             data.latitude, data.longitude, data.altitude, time, data.plusCode, config.number,
         )
-        val qrBmp = TamperProofSigner.generateQrBitmap(payload, rect.width().toInt().coerceAtLeast(64)) ?: return
+        val qrBmp = StampQrCode.generateQrBitmap(payload, rect.width().toInt().coerceAtLeast(64)) ?: return
         val bgPaint = Paint().apply { color = Color.WHITE }
         canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
         val inner = RectF(rect.left + 4f, rect.top + 4f, rect.right - 4f, rect.bottom - 4f)
