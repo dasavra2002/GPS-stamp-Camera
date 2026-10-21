@@ -97,6 +97,7 @@ import com.geostamp.camera.data.StampData
 import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampSettings
 import com.geostamp.camera.report.ReportGenerator
+import com.geostamp.camera.stamp.CameraExif
 import com.geostamp.camera.stamp.GalleryStamper
 import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.PhotoMeta
@@ -294,7 +295,11 @@ fun GalleryScreen(
                     item.edited -> "gallery-manual"
                     else -> "gallery-exif"
                 }
-                PhotoSaver.save(context, stamped, item.data, item.time, cfg.number, source, prefix = "Stamped_$base", subFolder = cfg.siteName.ifBlank { null }).also {
+                val exif = context.contentResolver.openInputStream(item.uri)?.use { CameraExif.read(it) }.orEmpty()
+                PhotoSaver.save(
+                    context, stamped, item.data, item.time, cfg.number, source,
+                    prefix = "Stamped_$base", subFolder = cfg.siteName.ifBlank { null }, cameraExif = exif,
+                ).also {
                     stamped.recycle()
                     if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()
                 }

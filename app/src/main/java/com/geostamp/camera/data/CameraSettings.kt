@@ -113,6 +113,8 @@ class CameraSettings(context: Context) {
     var burstCount by intPref("burst_count", 1)
     var timelapseIntervalSec by intPref("timelapse_interval_sec", 2)
     var autoDriveUpload by boolPref("auto_drive_upload", false)
+    /** Also save the camera's unstamped JPEG to Pictures/GeoStamp/Originals. */
+    var keepOriginal by boolPref("keep_original", false)
     var ghostOverlay by boolPref("ghost_overlay", false)
     var pipMode by boolPref("pip_mode", false)
     var documentMode by boolPref("document_mode", false)

@@ -279,13 +279,15 @@ object PhotoComposer {
 
 object PhotoSaver {
     private const val FOLDER = "GeoStamp"
+    private const val ORIGINALS = "Originals"
 
     /**
-     * Saves the stamped photo to Pictures/GeoStamp with GPS and date EXIF and a signed
+     * Saves the stamped photo to Pictures/GeoStamp with GPS, date and camera EXIF and a signed
      * capture proof (see [CaptureProof]). Returns its Uri.
      *
      * @param number the photo number printed on the stamp.
      * @param locationSource where the coordinates came from, recorded in the proof.
+     * @param cameraExif shooting tags from the camera's JPEG (see [CameraExif]).
      */
     fun save(
         context: Context,
@@ -296,10 +298,50 @@ object PhotoSaver {
         locationSource: String,
         prefix: String = "GeoStamp",
         subFolder: String? = null,
+        cameraExif: Map<String, String> = emptyMap(),
     ): Uri? {
-        val name = prefix + "_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS", Locale.US).format(ZonedDateTime.now()) + ".jpg"
+        val name = fileName(prefix)
         val temp = File(context.cacheDir, name)
         temp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+        return finish(context, temp, name, data, time, number, locationSource, subFolder, null, cameraExif, uprightPixels = true)
+    }
+
+    /**
+     * Saves the camera's own JPEG, unstamped and not re-compressed, to Pictures/GeoStamp/Originals.
+     * It gets the same GPS/time EXIF and its own capture proof, so the clean image can be checked too.
+     */
+    fun saveOriginal(
+        context: Context,
+        jpeg: ByteArray,
+        data: StampData,
+        time: ZonedDateTime,
+        number: Int,
+        locationSource: String,
+        subFolder: String? = null,
+    ): Uri? {
+        val name = fileName("Original")
+        val temp = File(context.cacheDir, name)
+        temp.writeBytes(jpeg)
+        // The camera's EXIF is already in the file; only location, time and the proof are added.
+        return finish(context, temp, name, data, time, number, locationSource, subFolder, ORIGINALS, emptyMap(), uprightPixels = false)
+    }
+
+    private fun fileName(prefix: String) =
+        prefix + "_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS", Locale.US).format(ZonedDateTime.now()) + ".jpg"
+
+    private fun finish(
+        context: Context,
+        temp: File,
+        name: String,
+        data: StampData,
+        time: ZonedDateTime,
+        number: Int,
+        locationSource: String,
+        subFolder: String?,
+        nested: String?,
+        cameraExif: Map<String, String>,
+        uprightPixels: Boolean,
+    ): Uri? {
         val proof = CaptureProof.imageHash(temp.readBytes())?.let { hash ->
             DeviceKey.sign(
                 ProofPayload(
@@ -316,24 +358,49 @@ object PhotoSaver {
                 ),
             )
         }
-        writeExif(temp, data, time, proof)
+        writeExif(temp, data, time, proof, cameraExif, uprightPixels)
 
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) saveQ(context, temp, name, subFolder) else saveLegacy(context, temp, name, subFolder)
+            val folder = folderPath(subFolder, nested)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) saveQ(context, temp, name, folder) else saveLegacy(context, temp, name, folder)
         } finally {
             temp.delete()
         }
     }
 
-    private fun writeExif(file: File, d: StampData, time: ZonedDateTime, proof: ProofRecord?) {
+    private fun writeExif(
+        file: File,
+        d: StampData,
+        time: ZonedDateTime,
+        proof: ProofRecord?,
+        cameraExif: Map<String, String>,
+        uprightPixels: Boolean,
+    ) {
         try {
             val exif = ExifInterface(file)
-            if (d.latitude != null && d.longitude != null) exif.setLatLong(d.latitude, d.longitude)
+            cameraExif.forEach { (tag, value) -> exif.setAttribute(tag, value) }
+            // The bitmap was turned upright before encoding, so no rotation is left to apply.
+            if (uprightPixels) exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+            if (d.latitude != null && d.longitude != null) {
+                exif.setLatLong(d.latitude, d.longitude)
+                exif.setAttribute(ExifInterface.TAG_GPS_MAP_DATUM, "WGS-84")
+                d.accuracyM?.let { exif.setAttribute(ExifInterface.TAG_GPS_H_POSITIONING_ERROR, CameraExif.rationalMetres(it)) }
+                // GPS time is when the position was measured, in UTC.
+                val fixEpochMs = d.fixElapsedMs?.let { System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - it) }
+                    ?: time.toInstant().toEpochMilli()
+                val (gpsDate, gpsTime) = CameraExif.gpsDateTime(fixEpochMs)
+                exif.setAttribute(ExifInterface.TAG_GPS_DATESTAMP, gpsDate)
+                exif.setAttribute(ExifInterface.TAG_GPS_TIMESTAMP, gpsTime)
+            }
             d.altitude?.let { exif.setAltitude(it) }
             val dt = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.US).format(time)
+            val offset = DateTimeFormatter.ofPattern("xxx", Locale.US).format(time)
             exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, dt)
+            exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, dt)
             exif.setAttribute(ExifInterface.TAG_DATETIME, dt)
-            exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, DateTimeFormatter.ofPattern("xxx", Locale.US).format(time))
+            exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, offset)
+            exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, offset)
+            exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, offset)
             d.azimuthDeg?.let {
                 exif.setAttribute(ExifInterface.TAG_GPS_IMG_DIRECTION, "${(it * 100).roundToInt()}/100")
                 exif.setAttribute(ExifInterface.TAG_GPS_IMG_DIRECTION_REF, "M")
@@ -350,13 +417,15 @@ object PhotoSaver {
         }
     }
 
-    private fun saveQ(context: Context, temp: File, name: String, subFolder: String? = null): Uri? {
-        val relPath = if (!subFolder.isNullOrBlank()) {
-            val safe = subFolder.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            Environment.DIRECTORY_PICTURES + "/" + FOLDER + "/" + safe
-        } else {
-            Environment.DIRECTORY_PICTURES + "/" + FOLDER
-        }
+    /** Folder under Pictures/GeoStamp: the site folder (cleaned of characters file systems reject), then [nested]. */
+    private fun folderPath(subFolder: String?, nested: String?): String? =
+        listOfNotNull(
+            subFolder?.takeIf { it.isNotBlank() }?.trim()?.replace(Regex("[\\\\/:*?\"<>|]"), "_"),
+            nested,
+        ).joinToString("/").ifEmpty { null }
+
+    private fun saveQ(context: Context, temp: File, name: String, folder: String?): Uri? {
+        val relPath = Environment.DIRECTORY_PICTURES + "/" + FOLDER + (folder?.let { "/$it" } ?: "")
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
@@ -378,12 +447,9 @@ object PhotoSaver {
     }
 
     @Suppress("DEPRECATION")
-    private fun saveLegacy(context: Context, temp: File, name: String, subFolder: String? = null): Uri? {
+    private fun saveLegacy(context: Context, temp: File, name: String, folder: String?): Uri? {
         val baseDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), FOLDER)
-        val dir = if (!subFolder.isNullOrBlank()) {
-            val safe = subFolder.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            File(baseDir, safe)
-        } else baseDir
+        val dir = if (folder != null) File(baseDir, folder) else baseDir
         if (!dir.exists()) dir.mkdirs()
         val dest = File(dir, name)
         temp.copyTo(dest, overwrite = true)

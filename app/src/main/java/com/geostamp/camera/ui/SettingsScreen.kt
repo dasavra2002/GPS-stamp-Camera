@@ -927,6 +927,13 @@ private fun GeneralTabContent(
             item(key = "cloud_automation_card") {
                 SettingsGroupCard(title = "Cloud Upload & Workflows") {
                     ToggleRow(
+                        title = "Keep Unstamped Original",
+                        subtitle = "Also saves the camera's clean photo, signed, to Pictures/GeoStamp/Originals",
+                        checked = cam.keepOriginal,
+                        onCheckedChange = { cam.keepOriginal = it },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                    ToggleRow(
                         title = "Auto-Upload to Google Drive",
                         subtitle = "Prompts Google Drive upload after every capture",
                         checked = cam.autoDriveUpload,
