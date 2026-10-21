@@ -32,7 +32,7 @@ The app is architected around modern Android best practices:
 - **Material 3 (Material You):** Full dynamic color theming (`dynamicDarkColorScheme` / `dynamicLightColorScheme` on Android 12+) with professional high-contrast OLED dark theme defaults. Every screen utilizes M3 elevated tonal cards (`ElevatedCard`), segmented buttons (`SingleChoiceSegmentedButtonRow`), tonal assist chips, and standardized typography (`Type.kt`).
 - **Reactive Unidirectional Data Flow:** State is managed via Kotlin Coroutines and StateFlows (`CameraController`, `StampDataRepository`, `GalleryState`).
 - **Camera2 Interop via CameraX 1.5:** Clean CameraX lifecycle bindings coupled with low-level Camera2 capture requests for manual ISO, nanosecond shutter control, Kelvin color temperature, and manual diopter focus.
-- **Hardware Acceleration & Zero-Leak Memory Management:** Bitmaps and Canvas surfaces are pooled and recycled to prevent Out-Of-Memory (OOM) errors during burst and high-resolution photo composition.
+- **Memory Management:** Intermediate bitmaps are recycled as soon as they're composed, and photos over 26 MP are decoded at half size, to avoid running out of memory during bursts and high-resolution composition.
 
 ---
 
@@ -140,8 +140,8 @@ GeoStamp features 4 distinct watermark rendering architectures with a toggle bet
 - **Plus Codes:** Offline Open Location Code (OLC) computed directly on-device.
 - **Altitude:** Mean Sea Level (MSL) altitude via Geoid height model on Android 14+ (API 34+).
 - **Environmental Telemetry:** Ambient temperature, humidity, wind speed, atmospheric pressure (barometer), and Air Quality Index (AQI).
-- **Celestial:** Sunrise, sunset, and solar azimuth.
-- **Sensor Telemetry:** Compass heading with declination, magnetic field flux ($\mu\text{T}$), sound pressure level (dB), and active camera lens optics.
+- **Celestial:** Sunrise and sunset (from Open-Meteo).
+- **Sensor Telemetry:** Magnetic compass heading (not corrected for declination), magnetic field flux ($\mu\text{T}$), sound pressure level (dB), and active camera lens optics.
 - **Geofence Check:** Compares current GPS against site coordinates and displays warnings when outside radius limits.
 - **Signed Capture Proof & Verify Screen:** Every saved photo carries a proof in its XMP metadata: the coordinates, accuracy, time, photo number, location source and a SHA-256 of the JPEG image data, signed with an ECDSA P-256 key that lives in the phone's Android Keystore (StrongBox or TEE) and can't be exported. The key's Google hardware attestation chain is stored with it. **Gallery > Verify photo** checks the signature, that the pixels are unchanged, that the key was made in genuine Android hardware for this app, and whether the bootloader is locked. Edits, crops, re-compression or changed metadata all fail verification. The on-stamp QR code is a readable summary (map link, coordinates, time), not proof by itself.
   - Limits: proofs from builds signed with different keys don't verify each other as "this app", so set the release signing secrets in CI. Messaging apps that strip metadata remove the proof. Attestation revocation status isn't checked yet.
@@ -169,8 +169,8 @@ GeoStamp features 4 distinct watermark rendering architectures with a toggle bet
   - Identifies RTK Fixed (`±0.02m`), RTK Float, and DGPS accuracy with live satellite constellation count and HDOP display, streaming centimeter-grade coordinates into the watermark engine.
 - **Excel / Sheets CSV Export:** Tabular export containing all EXIF coordinates, timestamps, Plus Codes, and street addresses.
 - **Google Earth 3D KML Export:** Generates standardized `.kml` files with coordinate placemarks, photo descriptions, and elevation profiles.
-- **Interactive Photo Map View:** Renders all captured photos on an interactive OpenStreetMap/Esri map with marker clustering and detail previews.
-- **Automated Backup & Instant Share:** Background auto-upload to Google Drive and 1-tap direct share to WhatsApp.
+- **Photo Map View:** Shows the gallery photos being stamped as markers on a map.
+- **Quick Share:** Optional prompt to share each new photo to Google Drive after capture (through Android's share sheet, so Drive must be installed), and 1-tap share to WhatsApp.
 
 ---
 
@@ -187,11 +187,11 @@ For remote field sites (mining plots, rural infrastructure, solar farms, oil pip
 ### 6. Smart Extras & On-Device ML Vision
 
 - **Signboard Text OCR:** Uses Google ML Kit Text Recognition to extract text from physical site signboards directly into the watermark note field.
-- **Asset / Barcode Scanner:** Uses Google ML Kit Barcode Scanning to scan asset tags, meter barcodes, and container codes into the watermark note.
+- **Asset / Barcode Scanner:** Uses ZXing to read QR codes and barcodes (asset tags, meters, containers) into the watermark note.
 - **AI Scene Auto-Captioning:** Uses on-device ML Kit Image Labeling to identify scene context (e.g. "Construction site, excavator, concrete").
 - **Voice Note Dictation:** Speech-to-text integration converting spoken field notes into watermark text.
 - **Ghost Angle Overlay (Before & After):** Overlays a translucent reference frame of the previous site photo onto the viewfinder to align camera angle perfectly for progress monitoring.
-- **Document Scanner Mode:** Perspective correction and edge cropping for receipts, blueprints, and paper inspection forms.
+- **Document Mode:** Boosts contrast for receipts, blueprints and paper forms. (No perspective correction or edge detection yet.)
 
 ---
 
@@ -218,29 +218,33 @@ All data fetching is free, private, and requires zero proprietary API keys:
 - **Map Tiles:** OpenStreetMap (Street) and Esri ArcGIS (Satellite & Terrain) by default, fetched only for the map actually shown, or your own tile server. The provider's attribution is printed on every map watermark.
 - **Weather Telemetry:** Open-Meteo REST API (current and historical hourly reanalysis for gallery photos).
 - **Plus Codes:** On-device Open Location Code algorithmic computation.
-- **Privacy:** All photos, GPS coordinates, voice notes, and ML vision inferences remain strictly on-device unless the user explicitly triggers Google Drive backup or export.
+- **Privacy:** Photos, voice notes and ML Kit results stay on the device unless you share or export them. To fill in the stamp, the current coordinates are sent to Open-Meteo (weather), the map tile server, and Android's Geocoder (address lookup, usually Google). No account or analytics.
 
 ---
 
 ## Unit Testing & Verification Suite
 
 The repository includes a comprehensive unit testing suite:
-- [`AspectCroppingTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/AspectCroppingTest.kt): Validates aspect ratio math, matrix translations, and bitmap bounding boxes.
-- [`PlusCodeTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/PlusCodeTest.kt): Verifies Open Location Code generation against real-world benchmark coordinates.
-- [`CoordinateConverterTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/CoordinateConverterTest.kt): Verifies Decimal Degrees to DMS, UTM, and MGRS conversions.
-- [`ExifParsingTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/ExifParsingTest.kt): Validates reading and writing EXIF latitude, longitude, and orientation tags.
+- [`AspectCroppingTest.kt`](app/src/test/java/com/geostamp/camera/AspectCroppingTest.kt): Validates aspect ratio math, matrix translations, and bitmap bounding boxes.
+- [`PlusCodeTest.kt`](app/src/test/java/com/geostamp/camera/PlusCodeTest.kt): Verifies Open Location Code generation against real-world benchmark coordinates.
+- [`CoordinateConverterTest.kt`](app/src/test/java/com/geostamp/camera/CoordinateConverterTest.kt): Verifies Decimal Degrees to DMS, UTM, and MGRS conversions.
+- [`ExifParsingTest.kt`](app/src/test/java/com/geostamp/camera/ExifParsingTest.kt): Validates reading and writing EXIF latitude, longitude, and orientation tags.
 - [`CaptureProofTest.kt`](app/src/test/java/com/geostamp/camera/CaptureProofTest.kt): Verifies image-data hashing across EXIF rewrites, ECDSA signing and tamper detection, XMP round-trips, and key attestation parsing.
 - [`StampQrCodeTest.kt`](app/src/test/java/com/geostamp/camera/StampQrCodeTest.kt): Verifies the on-stamp QR text.
-- [`WatermarkStyleTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/WatermarkStyleTest.kt): Tests watermark layout configurations and minimal vs full data filtering.
-- [`ReportGeneratorTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/ReportGeneratorTest.kt): Tests CSV escaping, KML coordinates, and multi-page PDF page calculations with compliance sign-off blocks.
-- [`CameraFeatureListTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/CameraFeatureListTest.kt): Tests volume key mappings, preserve settings toggles, and video codecs.
-- [`ManualControlsTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/ManualControlsTest.kt): Validates Kelvin color temperature to RGB gains conversion and shutter angle formulas.
-- [`AppWidgetProviderTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/AppWidgetProviderTest.kt): Validates widget intent actions, broadcast filters, and site status text formatting.
-- [`SlowMotionTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/SlowMotionTest.kt): Validates 60/120/240 fps speed profiles and video mode classification.
-- [`OfflineMapManagerTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/OfflineMapManagerTest.kt): Tests Web Mercator tile bounds, antimeridian longitude wrapping, and cache size calculations.
-- [`SignaturePadTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/SignaturePadTest.kt): Validates digital signature path collection, quadratic Bézier smoothing, undo, and clear.
-- [`GeofenceTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/GeofenceTest.kt): Validates geofence JSON serialization and Haversine distance boundary detection.
-- [`NmeaParserTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/NmeaParserTest.kt): Validates NMEA 0183 coordinate conversion, checksum verification, RTK Fixed mode, and speed/heading.
+- [`LocationArbiterTest.kt`](app/src/test/java/com/geostamp/camera/LocationArbiterTest.kt): Verifies that external GNSS fixes outrank phone GPS, timeout and disconnect hand-over, and which NMEA fix types are usable.
+- [`FixCheckTest.kt`](app/src/test/java/com/geostamp/camera/FixCheckTest.kt): Verifies mock, stale and inaccurate fix detection and proof v1/v2 compatibility.
+- [`CameraExifTest.kt`](app/src/test/java/com/geostamp/camera/CameraExifTest.kt): Verifies GPS UTC time stamps, positioning error, and which camera EXIF tags are carried over.
+- [`TileSourcesTest.kt`](app/src/test/java/com/geostamp/camera/TileSourcesTest.kt): Verifies tile URLs, attribution, and that only custom servers allow offline packs.
+- [`WatermarkStyleTest.kt`](app/src/test/java/com/geostamp/camera/WatermarkStyleTest.kt): Tests watermark layout configurations and minimal vs full data filtering.
+- [`ReportGeneratorTest.kt`](app/src/test/java/com/geostamp/camera/ReportGeneratorTest.kt): Tests CSV escaping, KML coordinates, and multi-page PDF page calculations with compliance sign-off blocks.
+- [`CameraFeatureListTest.kt`](app/src/test/java/com/geostamp/camera/CameraFeatureListTest.kt): Tests volume key mappings, preserve settings toggles, and video codecs.
+- [`ManualControlsTest.kt`](app/src/test/java/com/geostamp/camera/ManualControlsTest.kt): Validates Kelvin color temperature to RGB gains conversion and shutter angle formulas.
+- [`AppWidgetProviderTest.kt`](app/src/test/java/com/geostamp/camera/AppWidgetProviderTest.kt): Validates widget intent actions, broadcast filters, and site status text formatting.
+- [`SlowMotionTest.kt`](app/src/test/java/com/geostamp/camera/SlowMotionTest.kt): Validates 60/120/240 fps speed profiles and video mode classification.
+- [`OfflineMapManagerTest.kt`](app/src/test/java/com/geostamp/camera/OfflineMapManagerTest.kt): Tests Web Mercator tile bounds, antimeridian longitude wrapping, and cache size calculations.
+- [`SignaturePadTest.kt`](app/src/test/java/com/geostamp/camera/SignaturePadTest.kt): Validates digital signature path collection, quadratic Bézier smoothing, undo, and clear.
+- [`GeofenceTest.kt`](app/src/test/java/com/geostamp/camera/GeofenceTest.kt): Validates geofence JSON serialization and Haversine distance boundary detection.
+- [`NmeaParserTest.kt`](app/src/test/java/com/geostamp/camera/NmeaParserTest.kt): Validates NMEA 0183 coordinate conversion, checksum verification, RTK Fixed mode, and speed/heading.
 
 Run all unit tests:
 ```bash
