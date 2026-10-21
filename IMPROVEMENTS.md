@@ -55,6 +55,24 @@ All major architecture and feature items identified across the project reviews a
 3. **Offline Map Tile Pack Pre-Caching (`OfflineMapManager`):** Bounding box tile pre-caching (1 to 10 km) across zoom levels 14 to 17 for 100% offline remote site operation.
 4. **Branded PDF Inspection Reports with Sign-Off Seal (`ReportGenerator`):** Multi-page PDF generator embedding company logo, contractor details, and an official compliance sign-off certificate with unique Verification Audit ID and digital seal.
 
+### Milestone 6: Digital Sign-Off, Voice Memos, Multi-Site Geofencing & Bluetooth RTK GNSS
+1. **Interactive In-App Digital Signature Pad (`SignaturePad` & `DigitalSignatureDialog`):**
+   - Vector touch drawing with quadratic Bézier curve interpolation for smooth pen stroke physics.
+   - Dual-party sign-off support for Inspector/Surveyor and Client/Witness.
+   - Color picker, undo last stroke, and canvas clear controls.
+   - Direct high-resolution alpha bitmap rendering onto the PDF Official Inspection & Compliance Certificate with cryptographic SHA-256 integrity seal.
+2. **Field Voice Notes & Speech-to-Text Dictation (`VoiceMemoManager` & `VoiceMemoSection`):**
+   - High-quality AAC voice recording tied to photos with scrub-bar playback and deletion.
+   - On-device speech recognition to dictate remarks directly into the photo's note metadata hands-free.
+3. **Multi-Project Geofence Boundaries & Auto-Tagging (`GeofenceManager` & `GeofenceSiteDialog`):**
+   - Persistent storage for multiple project sites with custom boundaries, radii (100m, 250m, 500m, 1000m), and contractor/client tags.
+   - Pure Kotlin Haversine distance calculations and automatic tag switching when entering job site boundaries.
+   - Live viewfinder geofence status strip indicating active project tag or distance to nearest site boundary.
+4. **External Bluetooth RTK GNSS Receiver Support (`BluetoothGpsManager`, `NmeaParser`, `BluetoothGpsCard`):**
+   - Standard Bluetooth Serial Port Profile (SPP / RFCOMM) connection for external surveying receivers (Garmin GLO, Bad Elf, Trimble, Emlid Reach, ArduSimple).
+   - NMEA 0183 parser for `$GPGGA`, `$GNGGA`, `$GPRMC`, `$GNRMC` with checksum validation.
+   - Detection of RTK Fixed (`±0.02m`), RTK Float, and DGPS accuracy with real-time satellite count, HDOP, and live MSL altitude ingestion into `StampDataRepository`.
+
 ---
 
 ## 3. Verification & Quality Assurance Summary
@@ -73,12 +91,14 @@ All major architecture and feature items identified across the project reviews a
 | `AppWidgetProviderTest.kt` | Validates widget intents, action filters, and site status text | ✅ Passing |
 | `SlowMotionTest.kt` | Validates 60/120/240 fps profiles and video mode classification | ✅ Passing |
 | `OfflineMapManagerTest.kt` | Tests tile bounding boxes, antimeridian wrapping, and cache sizing | ✅ Passing |
+| `SignaturePadTest.kt` | Validates signature stroke point collection, Bézier paths, undo, and clear | ✅ Passing |
+| `GeofenceTest.kt` | Validates geofence JSON serialization and Haversine distance detection | ✅ Passing |
+| `NmeaParserTest.kt` | Validates NMEA coordinates, checksums, RTK Fixed mode, and speed/heading | ✅ Passing |
 
 ---
 
 ## 4. Future Roadmap Horizons (Optional Future Expansions)
 
-1. **Bluetooth External GPS Receiver Support:** Direct NMEA stream ingestion over Bluetooth (e.g. Trimble, Bad Elf, Garmin GLO) for sub-meter centimeter-level RTK surveying accuracy.
-2. **Video Watermarking for Existing Gallery Videos:** Media3 Transformer pipeline to burn GPS stamps into existing video clips imported from the device gallery.
-3. **Interactive Signature Pad Component:** An in-app Compose drawing canvas allowing inspectors and clients to sign directly on screen before generating the PDF inspection report.
-4. **Cloud Team Sync:** Optional multi-user sync protocol allowing inspection teams to aggregate photos by project site on a private server.
+1. **Video Watermarking for Existing Gallery Videos:** Media3 Transformer pipeline to burn GPS stamps into existing video clips imported from the device gallery.
+2. **Cloud Team Sync:** Optional multi-user sync protocol allowing inspection teams to aggregate photos by project site on a private server (S3 / WebDAV / Google Drive).
+3. **Live Photo / Motion Photo Capture:** Capturing a 1.5s micro-video alongside full-resolution stamped photos.

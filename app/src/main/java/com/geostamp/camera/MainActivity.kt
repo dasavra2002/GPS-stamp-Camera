@@ -55,7 +55,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.geostamp.camera.camera.CameraController
 import com.geostamp.camera.data.CameraSettings
+import com.geostamp.camera.data.GeofenceManager
 import com.geostamp.camera.data.StampDataRepository
+import com.geostamp.camera.location.BluetoothGpsManager
 import com.geostamp.camera.data.StampField
 import com.geostamp.camera.data.StampSettings
 import com.geostamp.camera.data.VolumeButtonAction
@@ -150,6 +152,8 @@ private fun App(
     val repo = remember { StampDataRepository(context.applicationContext, scope) }
     val controller = remember { CameraController(context) }
     val galleryState = remember { GalleryState(scope) }
+    val geofenceManager = remember { GeofenceManager(context.applicationContext) }
+    val bluetoothGpsManager = remember { BluetoothGpsManager(context.applicationContext, scope, repo) }
 
     fun granted(p: String) = ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
 
@@ -231,11 +235,19 @@ private fun App(
             cam = cameraSettings,
             repo = repo,
             controller = controller,
+            geofenceManager = geofenceManager,
             volumeKeyTrigger = volumeKeyTrigger,
             onOpenSettings = { screen = Screen.SETTINGS },
             onOpenGallery = { screen = Screen.GALLERY },
         )
-        Screen.SETTINGS -> SettingsScreen(settings, repo, cameraSettings, onBack = { screen = Screen.CAMERA })
+        Screen.SETTINGS -> SettingsScreen(
+            settings = settings,
+            repo = repo,
+            cam = cameraSettings,
+            geofenceManager = geofenceManager,
+            bluetoothGpsManager = bluetoothGpsManager,
+            onBack = { screen = Screen.CAMERA }
+        )
         Screen.GALLERY -> GalleryScreen(galleryState, settings, repo, onBack = { screen = Screen.CAMERA })
     }
 }

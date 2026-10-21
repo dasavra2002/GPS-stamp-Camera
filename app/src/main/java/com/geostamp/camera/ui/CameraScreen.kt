@@ -108,6 +108,7 @@ import com.geostamp.camera.camera.SensorInfo
 import com.geostamp.camera.camera.VideoSpec
 import com.geostamp.camera.camera.WbMode
 import com.geostamp.camera.data.CameraSettings
+import com.geostamp.camera.data.GeofenceManager
 import com.geostamp.camera.data.FrameGuide
 import com.geostamp.camera.data.PhotoFormat
 import com.geostamp.camera.data.SnapshotMode
@@ -144,11 +145,13 @@ fun CameraScreen(
     cam: CameraSettings,
     repo: StampDataRepository,
     controller: CameraController,
+    geofenceManager: GeofenceManager? = null,
     volumeKeyTrigger: kotlinx.coroutines.flow.SharedFlow<VolumeKeyEvent>? = null,
     onOpenSettings: () -> Unit,
     onOpenGallery: () -> Unit,
 ) {
     val context = LocalContext.current
+    val geoMgr = geofenceManager ?: remember { GeofenceManager(context) }
     val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val data by repo.data.collectAsState()
@@ -240,6 +243,22 @@ fun CameraScreen(
             android.location.Location.distanceBetween(currentLat, currentLon, siteLat, siteLon, results)
             results[0]
         } else null
+    }
+
+    // Auto-switch project tags when entering geofence boundaries
+    LaunchedEffect(currentLat, currentLon, geoMgr.autoSwitchEnabled.value) {
+        if (currentLat != null && currentLon != null && geoMgr.autoSwitchEnabled.value) {
+            val active = geoMgr.findActiveSite(currentLat, currentLon)
+            if (active != null) {
+                val site = active.first
+                if (settings.siteName != site.name) {
+                    settings.siteName = site.name
+                    if (site.contractor.isNotBlank()) settings.custom1Value = site.contractor
+                    if (site.client.isNotBlank()) settings.custom2Value = site.client
+                    if (site.note.isNotBlank()) settings.note = site.note
+                }
+            }
+        }
     }
 
     // Find every camera on the phone.
@@ -1006,7 +1025,56 @@ fun CameraScreen(
         }
 
         // ---- Geofence status strip ----
-        if (geofenceDistanceM != null) {
+        val activeSitePair = remember(currentLat, currentLon, geoMgr.sites.size) {
+            geoMgr.findActiveSite(currentLat, currentLon)
+        }
+        val nearestSitePair = remember(currentLat, currentLon, geoMgr.sites.size) {
+            geoMgr.findNearestSite(currentLat, currentLon)
+        }
+
+        if (activeSitePair != null) {
+            val site = activeSitePair.first
+            val dist = activeSitePair.second
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xD91B5E20))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "✅ In Geofence: ${site.name} (${dist.toInt()}m)",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "AUTO-TAGGED",
+                    color = Color(0xFFA5D6A7),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        } else if (nearestSitePair != null) {
+            val site = nearestSitePair.first
+            val dist = nearestSitePair.second
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "⚠️ Outside ${site.name}: ${dist.toInt()}m (Limit ${site.radiusMeters.toInt()}m)",
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        } else if (geofenceDistanceM != null) {
             val outside = geofenceDistanceM > siteRadius
             Row(
                 Modifier

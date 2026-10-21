@@ -32,10 +32,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AddLocation
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.Circle
+import com.geostamp.camera.data.GeofenceManager
+import com.geostamp.camera.data.GeofenceSite
+import com.geostamp.camera.location.BluetoothGpsManager
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -54,6 +59,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -120,10 +126,15 @@ fun SettingsScreen(
     settings: StampSettings,
     repo: StampDataRepository,
     cam: CameraSettings? = null,
+    geofenceManager: GeofenceManager? = null,
+    bluetoothGpsManager: BluetoothGpsManager? = null,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val geoMgr = geofenceManager ?: remember { GeofenceManager(context) }
+    val btManager = bluetoothGpsManager ?: remember { BluetoothGpsManager(context, scope, repo) }
     val data by repo.data.collectAsState()
     val config = settings.snapshot()
     var preview by remember { mutableStateOf<Bitmap?>(null) }
@@ -425,6 +436,120 @@ fun SettingsScreen(
                             onCheckedChange = { cam.autoDriveUpload = it },
                         )
                     }
+                }
+            }
+
+            // Multi-Project Geofence Boundaries Card
+            item(key = "geofence_sites_section") {
+                SettingsGroupCard(title = "Multi-Project Geofence Boundaries") {
+                    var showAddSiteDialog by remember { mutableStateOf(false) }
+
+                    ToggleRow(
+                        title = "Auto-switch project tags on site entry",
+                        subtitle = "Automatically populates Project, Contractor & Client tags inside site radius",
+                        checked = geoMgr.autoSwitchEnabled.value,
+                        onCheckedChange = { geoMgr.setAutoSwitch(it) }
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        if (geoMgr.sites.isEmpty()) {
+                            Text(
+                                "No project boundaries configured. Add work sites below to automatically set project, contractor, and client tags when entering the site radius.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            for (site in geoMgr.sites) {
+                                val curLat = data.latitude
+                                val curLon = data.longitude
+                                val dist = if (curLat != null && curLon != null) {
+                                    GeofenceSite.distanceMeters(curLat, curLon, site.latitude, site.longitude)
+                                } else null
+                                val isInside = dist != null && dist <= site.radiusMeters
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(site.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                            Spacer(Modifier.width(8.dp))
+                                            if (isInside) {
+                                                Surface(
+                                                    color = Color(0xFFE8F5E9),
+                                                    shape = RoundedCornerShape(4.dp),
+                                                ) {
+                                                    Text(
+                                                        "ACTIVE (${dist?.toInt()}m)",
+                                                        color = Color(0xFF2E7D32),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        val distText = if (dist != null) String.format(java.util.Locale.US, "%.1f km away", dist / 1000.0) else "Distance unknown"
+                                        Text(
+                                            "Radius: ${site.radiusMeters.toInt()}m • $distText",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        if (site.contractor.isNotBlank() || site.client.isNotBlank()) {
+                                            Text(
+                                                "Tags: ${listOfNotNull(site.contractor.takeIf { it.isNotBlank() }, site.client.takeIf { it.isNotBlank() }).joinToString(" • ")}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    }
+
+                                    IconButton(onClick = { geoMgr.removeSite(site.id) }) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Delete Site", tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = { showAddSiteDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.small,
+                        ) {
+                            Icon(Icons.Filled.AddLocation, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Add Work Site Geofence")
+                        }
+                    }
+
+                    if (showAddSiteDialog) {
+                        AddGeofenceSiteDialog(
+                            currentLat = data.latitude,
+                            currentLon = data.longitude,
+                            onDismiss = { showAddSiteDialog = false },
+                            onSave = { site ->
+                                geoMgr.addSite(site)
+                                showAddSiteDialog = false
+                                Toast.makeText(context, "Added site: ${site.name}", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            }
+
+            // External Bluetooth GNSS / RTK Receiver Card
+            item(key = "bluetooth_rtk_section") {
+                SettingsGroupCard(title = "External Bluetooth GNSS / RTK Receiver") {
+                    BluetoothGpsSection(manager = btManager)
                 }
             }
 

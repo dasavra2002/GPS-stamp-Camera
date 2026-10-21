@@ -137,10 +137,22 @@ GeoStamp features 4 distinct watermark rendering architectures with a toggle bet
 
 ### 4. Proof-of-Work & Inspection Reporting
 
-- **Branded PDF Inspection Reports:**
+- **Branded PDF Inspection Reports & Digital Signatures:**
   - Multi-page document compiler formatting up to 2 items per page with high-res photos, coordinates, addresses, weather, and mini-map thumbnails.
-  - **Company Branding:** Embeds company/contractor name and high-resolution logo bitmap in the document header.
-  - **Official Inspection & Compliance Sign-Off Certificate:** Dedicated sign-off block with Lead Inspector name, Organization/Agency, unique Verification Audit ID (`GS-VERIFIED-...`), ISO timestamp, status badge (`STATUS: VERIFIED & APPROVED`), and authorized signature line.
+  - **Interactive Digital Signature Pad (`SignaturePad`):** Vector drawing canvas with cubic/quadratic Bézier smoothing, undo, and clear controls. Supports dual-party sign-off for **Lead Inspector / Surveyor** and **Client / Site Supervisor**.
+  - **Official Compliance Sign-Off Certificate:** Dedicated sign-off block with Inspector credentials, Client designation, Verification Audit ID (`GS-VERIFIED-...`), status badge (`STATUS: VERIFIED & APPROVED`), cryptographic SHA-256 integrity seal, and high-resolution digital signatures.
+- **Field Voice Notes & Speech Dictation (`VoiceMemoManager`):**
+  - High-fidelity AAC audio memos (`.m4a`) recorded and bundled directly with photos.
+  - In-app playback bar with scrub slider, duration tracking, and delete controls.
+  - On-device speech-to-text transcription dictating field remarks into photo notes hands-free.
+- **Multi-Project Geofence Boundaries & Auto-Tagging (`GeofenceManager`):**
+  - Define work site boundaries with custom radii (100m, 250m, 500m, 1000m) and pre-configured Contractor & Client tags.
+  - Automatically switches the active project, contractor, and client tags upon entering site boundaries.
+  - Live viewfinder geofence status strip indicating active project tag or distance to nearest site boundary.
+- **External Bluetooth RTK GNSS Receiver Support (`BluetoothGpsManager` & `NmeaParser`):**
+  - Connects to external surveying GNSS receivers (Garmin GLO, Bad Elf, Trimble, Emlid Reach, ArduSimple) over Bluetooth Serial Port Profile (SPP / RFCOMM).
+  - NMEA 0183 parser for `$GPGGA`, `$GNGGA`, `$GPRMC`, and `$GNRMC` with checksum validation.
+  - Identifies RTK Fixed (`±0.02m`), RTK Float, and DGPS accuracy with live satellite constellation count and HDOP display, streaming centimeter-grade coordinates into the watermark engine.
 - **Excel / Sheets CSV Export:** Tabular export containing all EXIF coordinates, timestamps, Plus Codes, and street addresses.
 - **Google Earth 3D KML Export:** Generates standardized `.kml` files with coordinate placemarks, photo descriptions, and elevation profiles.
 - **Interactive Photo Map View:** Renders all captured photos on an interactive OpenStreetMap/Esri map with marker clustering and detail previews.
@@ -211,6 +223,9 @@ The repository includes a comprehensive unit testing suite:
 - [`AppWidgetProviderTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/AppWidgetProviderTest.kt): Validates widget intent actions, broadcast filters, and site status text formatting.
 - [`SlowMotionTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/SlowMotionTest.kt): Validates 60/120/240 fps speed profiles and video mode classification.
 - [`OfflineMapManagerTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/OfflineMapManagerTest.kt): Tests Web Mercator tile bounds, antimeridian longitude wrapping, and cache size calculations.
+- [`SignaturePadTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/SignaturePadTest.kt): Validates digital signature path collection, quadratic Bézier smoothing, undo, and clear.
+- [`GeofenceTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/GeofenceTest.kt): Validates geofence JSON serialization and Haversine distance boundary detection.
+- [`NmeaParserTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/NmeaParserTest.kt): Validates NMEA 0183 coordinate conversion, checksum verification, RTK Fixed mode, and speed/heading.
 
 Run all unit tests:
 ```bash

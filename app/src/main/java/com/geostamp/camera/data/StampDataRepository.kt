@@ -117,6 +117,25 @@ class StampDataRepository(
         currentLocation?.let { refreshMap(it) }
     }
 
+    /** Ingests external high-precision GNSS / RTK coordinates (e.g. from Bluetooth receiver). */
+    fun updateExternalLocation(
+        latitude: Double,
+        longitude: Double,
+        altitudeM: Double? = null,
+        accuracyM: Float? = null,
+        bearingDeg: Float? = null,
+    ) {
+        val loc = Location("Bluetooth_RTK").apply {
+            this.latitude = latitude
+            this.longitude = longitude
+            altitudeM?.let { this.altitude = it }
+            accuracyM?.let { this.accuracy = it }
+            bearingDeg?.let { this.bearing = it }
+            time = System.currentTimeMillis()
+        }
+        onLocation(loc)
+    }
+
     fun setSoundEnabled(on: Boolean) {
         soundWanted = on
         if (on && running) startSound()

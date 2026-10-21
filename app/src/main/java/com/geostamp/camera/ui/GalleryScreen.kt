@@ -133,6 +133,7 @@ class GalleryItem(val uri: Uri, val name: String, val thumb: Bitmap?, val meta: 
     var status by mutableStateOf(ItemStatus.READING)
     var savedUri by mutableStateOf<Uri?>(null)
     var edited by mutableStateOf(false)
+    var audioMemoPath by mutableStateOf<String?>(null)
 }
 
 /** Survives switching between the camera and gallery screens. */
@@ -171,6 +172,7 @@ fun GalleryScreen(
     val scope = rememberCoroutineScope()
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var viewMode by remember { mutableStateOf(GalleryViewMode.LIST) }
+    var showSignatureDialog by remember { mutableStateOf(false) }
 
     fun shareItemWhatsApp(item: GalleryItem) {
         val uri = item.savedUri ?: item.uri
@@ -406,29 +408,7 @@ fun GalleryScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     AssistChip(
-                        onClick = {
-                            state.scope.launch {
-                                Toast.makeText(context, "Generating inspection PDF report…", Toast.LENGTH_SHORT).show()
-                                val uri = ReportGenerator.generatePdfReport(
-                                    context, state.items,
-                                    projectName = settings.siteName.ifBlank { settings.note.ifBlank { "Site Visit" } },
-                                    inspectorName = settings.personName,
-                                    companyName = settings.custom1Value.ifBlank { "Certified Field Inspection" },
-                                    logoBitmap = settings.logo,
-                                    approvalStatus = "VERIFIED & APPROVED",
-                                )
-                                if (uri != null) {
-                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/pdf"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(sendIntent, "Share Inspection PDF"))
-                                } else {
-                                    Toast.makeText(context, "Could not generate PDF", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
+                        onClick = { showSignatureDialog = true },
                         label = { Text("PDF Report") },
                         leadingIcon = { Icon(Icons.Filled.Description, null, modifier = Modifier.size(16.dp)) },
                         colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -622,6 +602,67 @@ fun GalleryScreen(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         )
     }
+
+    if (showSignatureDialog) {
+        DigitalSignatureDialog(
+            initialInspectorName = settings.personName,
+            initialCompanyName = settings.custom1Value.ifBlank { "Certified Field Inspection" },
+            onDismiss = { showSignatureDialog = false },
+            onConfirm = { signoff ->
+                showSignatureDialog = false
+                state.scope.launch {
+                    Toast.makeText(context, "Generating signed inspection PDF report…", Toast.LENGTH_SHORT).show()
+                    val uri = ReportGenerator.generatePdfReport(
+                        context, state.items,
+                        projectName = settings.siteName.ifBlank { settings.note.ifBlank { "Site Visit" } },
+                        inspectorName = signoff.inspectorName,
+                        inspectorRole = signoff.inspectorRole,
+                        inspectorSignature = signoff.inspectorSignature,
+                        clientName = signoff.clientName,
+                        clientCompany = signoff.clientCompany,
+                        clientSignature = signoff.clientSignature,
+                        companyName = settings.custom1Value.ifBlank { "Certified Field Inspection" },
+                        logoBitmap = settings.logo,
+                        approvalStatus = signoff.approvalStatus,
+                    )
+                    if (uri != null) {
+                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/pdf"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(sendIntent, "Share Signed Inspection PDF"))
+                    } else {
+                        Toast.makeText(context, "Could not generate PDF", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onSkipSignatures = {
+                showSignatureDialog = false
+                state.scope.launch {
+                    Toast.makeText(context, "Generating inspection PDF report…", Toast.LENGTH_SHORT).show()
+                    val uri = ReportGenerator.generatePdfReport(
+                        context, state.items,
+                        projectName = settings.siteName.ifBlank { settings.note.ifBlank { "Site Visit" } },
+                        inspectorName = settings.personName,
+                        companyName = settings.custom1Value.ifBlank { "Certified Field Inspection" },
+                        logoBitmap = settings.logo,
+                        approvalStatus = "VERIFIED & APPROVED",
+                    )
+                    if (uri != null) {
+                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/pdf"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(sendIntent, "Share Inspection PDF"))
+                    } else {
+                        Toast.makeText(context, "Could not generate PDF", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -682,6 +723,14 @@ private fun ItemCard(
                     )
                     d.title?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
+                    if (item.audioMemoPath != null) {
+                        Text(
+                            "🎙️ Voice Memo Attached",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                     Text(
                         item.status.text,
@@ -1054,6 +1103,26 @@ private fun EditDetailsScreen(
                         }
                     }
                 }
+
+                // Voice Note / Audio Memo Card
+                VoiceMemoSection(
+                    photoName = item.name,
+                    audioMemoPath = item.audioMemoPath,
+                    onAudioRecorded = { path, _ ->
+                        item.audioMemoPath = path
+                        item.edited = true
+                    },
+                    onAudioDeleted = {
+                        item.audioMemoPath = null
+                        item.edited = true
+                    },
+                    onSpeechTranscribed = { text ->
+                        if (text.isNotBlank()) {
+                            settings.note = if (settings.note.isBlank()) text else "${settings.note} • $text"
+                            Toast.makeText(context, "Transcribed: $text", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
 
                 // Weather Card
                 ElevatedCard(

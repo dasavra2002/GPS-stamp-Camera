@@ -32,6 +32,11 @@ object ReportGenerator {
         items: List<GalleryItem>,
         projectName: String = "Site Inspection",
         inspectorName: String = "",
+        inspectorRole: String = "Lead Field Inspector",
+        inspectorSignature: Bitmap? = null,
+        clientName: String = "",
+        clientCompany: String = "",
+        clientSignature: Bitmap? = null,
         companyName: String = "",
         logoBitmap: Bitmap? = null,
         certificateId: String = "",
@@ -264,22 +269,47 @@ object ReportGenerator {
                 canvas.drawText(DateTimeFormatter.ofPattern("dd MMMM yyyy, hh:mm:ss a z", Locale.getDefault()).format(ZonedDateTime.now()), margin + 110f, sy, bodyPaint)
 
                 // Right details (Status & Signature Seal)
-                val rightX = pageW - margin - 190f
+                val rightX = pageW - margin - 215f
                 val statusBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (approvalStatus.contains("APPROV", true)) 0xFFE8F5E9.toInt() else 0xFFFFF3E0.toInt()
                 }
                 val statusTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    textSize = 9f
+                    textSize = 8.5f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     color = if (approvalStatus.contains("APPROV", true)) 0xFF2E7D32.toInt() else 0xFFE65100.toInt()
                 }
-                canvas.drawRoundRect(RectF(rightX, signCardTop + 32f, pageW - margin - 14f, signCardTop + 52f), 4f, 4f, statusBgPaint)
-                canvas.drawText("STATUS: $approvalStatus", rightX + 8f, signCardTop + 45f, statusTextPaint)
+                canvas.drawRoundRect(RectF(rightX, signCardTop + 30f, pageW - margin - 14f, signCardTop + 48f), 4f, 4f, statusBgPaint)
+                canvas.drawText("STATUS: $approvalStatus", rightX + 8f, signCardTop + 42f, statusTextPaint)
 
-                canvas.drawText("Cryptographic Proof-of-Work Seal", rightX, signCardTop + 68f, boldBody)
-                canvas.drawText("Tamper-evident on-device signature", rightX, signCardTop + 80f, subPaint)
-                canvas.drawLine(rightX, signCardTop + 108f, pageW - margin - 14f, signCardTop + 108f, linePaint)
-                canvas.drawText("Authorized Signatory & Date", rightX + 10f, signCardTop + 122f, subPaint)
+                // Dual Signatures: Inspector (left) and Client/Witness (right)
+                val sigBoxW = 92f
+                val sigBoxH = 34f
+                val sigY = signCardTop + 54f
+
+                // 1. Inspector signature
+                val inspRect = RectF(rightX, sigY, rightX + sigBoxW, sigY + sigBoxH)
+                if (inspectorSignature != null) {
+                    canvas.drawBitmap(inspectorSignature, null, inspRect, Paint(Paint.FILTER_BITMAP_FLAG))
+                }
+                canvas.drawLine(rightX, sigY + sigBoxH + 4f, rightX + sigBoxW, sigY + sigBoxH + 4f, linePaint)
+                val inspLabel = inspectorName.ifBlank { "Inspector" }
+                canvas.drawText(inspLabel, rightX, sigY + sigBoxH + 14f, boldBody)
+                canvas.drawText(inspectorRole, rightX, sigY + sigBoxH + 24f, subPaint)
+
+                // 2. Client / Witness signature
+                val clientX = rightX + sigBoxW + 14f
+                val clientRect = RectF(clientX, sigY, clientX + sigBoxW, sigY + sigBoxH)
+                if (clientSignature != null) {
+                    canvas.drawBitmap(clientSignature, null, clientRect, Paint(Paint.FILTER_BITMAP_FLAG))
+                }
+                canvas.drawLine(clientX, sigY + sigBoxH + 4f, clientX + sigBoxW, sigY + sigBoxH + 4f, linePaint)
+                val clientLabel = clientName.ifBlank { "Client / Witness" }
+                canvas.drawText(clientLabel, clientX, sigY + sigBoxH + 14f, boldBody)
+                canvas.drawText(clientCompany.ifBlank { "Witness Signatory" }, clientX, sigY + sigBoxH + 24f, subPaint)
+
+                // Tamper-evident seal notice at bottom of card
+                val sealText = "Cryptographically stamped with on-device SHA-256 HMAC integrity verification."
+                canvas.drawText(sealText, margin + 14f, signCardTop + signCardH - 10f, subPaint)
             }
 
             // Footer
