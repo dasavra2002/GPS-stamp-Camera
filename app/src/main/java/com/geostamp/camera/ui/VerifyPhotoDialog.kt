@@ -170,7 +170,12 @@ private fun Detail(label: String, value: String) {
     }
 }
 
-private fun sourceLabel(source: String): String = when (source) {
+private fun sourceLabel(source: String): String = when {
+    source.startsWith("bluetooth-gnss:") -> "External GNSS receiver (" + source.substringAfter(':').replace('-', ' ').uppercase(Locale.US) + "), live at capture"
+    else -> sourceLabelPlain(source)
+}
+
+private fun sourceLabelPlain(source: String): String = when (source) {
     "phone-gps" -> "Phone GPS, live at capture"
     "bluetooth-gnss" -> "External GNSS receiver, live at capture"
     "gallery-exif" -> "An existing photo's EXIF (stamped later)"

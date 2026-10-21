@@ -38,6 +38,24 @@ data class NmeaLocation(
 
     val isAccurate: Boolean
         get() = fixQuality != NmeaFixQuality.INVALID && latitude != null && longitude != null
+
+    /**
+     * A real satellite fix that may go on a stamp. Dead reckoning, manual input and
+     * simulation modes are excluded: a receiver in simulation mode would otherwise fake the location.
+     */
+    val isUsableFix: Boolean
+        get() = isAccurate && fixQuality in USABLE
+
+    /** Short id recorded in the photo's proof, e.g. "bluetooth-gnss:rtk-fixed". */
+    val sourceId: String
+        get() = "bluetooth-gnss:" + fixQuality.name.lowercase(Locale.US).replace('_', '-')
+
+    private companion object {
+        val USABLE = setOf(
+            NmeaFixQuality.GPS, NmeaFixQuality.DGPS, NmeaFixQuality.PPS,
+            NmeaFixQuality.RTK_FIXED, NmeaFixQuality.RTK_FLOAT,
+        )
+    }
 }
 
 object NmeaParser {
