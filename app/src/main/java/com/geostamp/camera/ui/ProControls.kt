@@ -507,10 +507,10 @@ fun LevelIndicator(roll: Float, modifier: Modifier = Modifier) {
 fun HistogramView(bins: IntArray?, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .size(width = 120.dp, height = 52.dp)
-            .background(Color(0x99000000), RoundedCornerShape(4.dp))
-            .border(1.dp, Color(0x44FFFFFF), RoundedCornerShape(4.dp))
-            .padding(3.dp),
+            .size(width = 84.dp, height = 32.dp)
+            .background(Color(0x80000000), RoundedCornerShape(8.dp))
+            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+            .padding(2.5.dp),
     ) {
         if (bins == null) return@Box
         Canvas(Modifier.fillMaxSize()) {
@@ -527,10 +527,10 @@ fun HistogramView(bins: IntArray?, modifier: Modifier = Modifier) {
                 lineTo(size.width, size.height)
                 close()
             }
-            drawPath(path, Color(0xCCE0E0E0))
+            drawPath(path, Color(0xB3FFFFFF))
             // clipping warnings
-            if (bins.first() > max * 0.5f) drawRect(Color(0xFF42A5F5), Offset.Zero, GSize(3.dp.toPx(), size.height))
-            if (bins.last() > max * 0.5f) drawRect(Color(0xFFEF5350), Offset(size.width - 3.dp.toPx(), 0f), GSize(3.dp.toPx(), size.height))
+            if (bins.first() > max * 0.5f) drawRect(Color(0xFF42A5F5), Offset.Zero, GSize(2.dp.toPx(), size.height))
+            if (bins.last() > max * 0.5f) drawRect(Color(0xFFEF5350), Offset(size.width - 2.dp.toPx(), 0f), GSize(2.dp.toPx(), size.height))
         }
     }
 }

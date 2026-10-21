@@ -2,38 +2,38 @@ package com.geostamp.camera.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary GeoStamp Amber / Gold
-val PrimaryDark = Color(0xFFFFC107)
-val OnPrimaryDark = Color(0xFF261900)
+// Primary GeoStamp Refined Gold / Amber (Material 3 Harmonic Palette)
+val PrimaryDark = Color(0xFFE8C468)
+val OnPrimaryDark = Color(0xFF3F2E00)
 val PrimaryContainerDark = Color(0xFF5B4300)
-val OnPrimaryContainerDark = Color(0xFFFFE088)
+val OnPrimaryContainerDark = Color(0xFFFFE08D)
 
-val PrimaryLight = Color(0xFF785900)
+val PrimaryLight = Color(0xFF745B00)
 val OnPrimaryLight = Color(0xFFFFFFFF)
-val PrimaryContainerLight = Color(0xFFFFDF9E)
-val OnPrimaryContainerLight = Color(0xFF251A00)
+val PrimaryContainerLight = Color(0xFFFFDF99)
+val OnPrimaryContainerLight = Color(0xFF241A00)
 
-// Secondary Cyan / Tech Blue
-val SecondaryDark = Color(0xFF64D2FF)
-val OnSecondaryDark = Color(0xFF003548)
-val SecondaryContainerDark = Color(0xFF004D67)
-val OnSecondaryContainerDark = Color(0xFFBDE9FF)
+// Secondary Warm Sand / Tech M3
+val SecondaryDark = Color(0xFFD4C5A3)
+val OnSecondaryDark = Color(0xFF382F16)
+val SecondaryContainerDark = Color(0xFF50462B)
+val OnSecondaryContainerDark = Color(0xFFF1E1BD)
 
-val SecondaryLight = Color(0xFF006789)
+val SecondaryLight = Color(0xFF685D3F)
 val OnSecondaryLight = Color(0xFFFFFFFF)
-val SecondaryContainerLight = Color(0xFFC2E8FF)
-val OnSecondaryContainerLight = Color(0xFF001E2B)
+val SecondaryContainerLight = Color(0xFFF1E1BD)
+val OnSecondaryContainerLight = Color(0xFF231A03)
 
-// Tertiary Emerald / Field Green
-val TertiaryDark = Color(0xFF81C784)
-val OnTertiaryDark = Color(0xFF003915)
-val TertiaryContainerDark = Color(0xFF005322)
-val OnTertiaryContainerDark = Color(0xFFA6F5B4)
+// Tertiary Soft Emerald / Mint
+val TertiaryDark = Color(0xFF8FD89F)
+val OnTertiaryDark = Color(0xFF003919)
+val TertiaryContainerDark = Color(0xFF005327)
+val OnTertiaryContainerDark = Color(0xFFAAF5B9)
 
-val TertiaryLight = Color(0xFF2E6C38)
+val TertiaryLight = Color(0xFF256C3B)
 val OnTertiaryLight = Color(0xFFFFFFFF)
-val TertiaryContainerLight = Color(0xFFB1F5B2)
-val OnTertiaryContainerLight = Color(0xFF002108)
+val TertiaryContainerLight = Color(0xFFAAF5B9)
+val OnTertiaryContainerLight = Color(0xFF00210B)
 
 // Error & Warnings
 val ErrorDark = Color(0xFFFFB4AB)

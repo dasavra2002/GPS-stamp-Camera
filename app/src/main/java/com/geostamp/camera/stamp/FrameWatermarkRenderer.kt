@@ -44,20 +44,21 @@ object FrameWatermarkRenderer {
         time: ZonedDateTime,
         params: ShotParams?,
         cameraLabel: String? = null,
+        isPreview: Boolean = false,
     ): Bitmap {
         val shot = params ?: ShotParams()
         return when (config.watermarkStyle) {
-            WatermarkStyle.STUDIO_WHITE_BAR -> renderBottomBar(photo, config, data, time, shot, cameraLabel, isDark = false, hasYellowBlock = false, hasStripe = false, hasAvatar = false)
-            WatermarkStyle.ACCENT_BLOCK_BAR -> renderBottomBar(photo, config, data, time, shot, cameraLabel, isDark = true, hasYellowBlock = true, hasStripe = false, hasAvatar = false)
-            WatermarkStyle.ACCENT_STRIPE_BAR -> renderBottomBar(photo, config, data, time, shot, cameraLabel, isDark = true, hasYellowBlock = false, hasStripe = true, hasAvatar = false)
-            WatermarkStyle.AVATAR_WHITE_BAR -> renderBottomBar(photo, config, data, time, shot, cameraLabel, isDark = false, hasYellowBlock = false, hasStripe = false, hasAvatar = true)
-            WatermarkStyle.EXHIBITION_WHITE_MAT -> renderFullMatFrame(photo, config, data, time, shot, cameraLabel, bgColor = Color.WHITE, textColor = Color.BLACK, hasAvatar = config.showAvatarOnFrame)
-            WatermarkStyle.FILM_STRIP_35MM -> render35mmFilmStrip(photo, config, data, time, shot, cameraLabel)
-            WatermarkStyle.SIGNATURE_YELLOW_MAT -> renderSignatureYellowMat(photo, config, data, time, shot, cameraLabel)
-            WatermarkStyle.LUXURY_BLACK_MAT -> renderLuxuryBlackMat(photo, config, data, time, shot, cameraLabel)
-            WatermarkStyle.RETRO_VINTAGE_FILM -> renderRetroVintageFilm(photo, config, data, time, shot, cameraLabel)
-            WatermarkStyle.EDITORIAL_TYPOGRAPHY -> renderEditorialTypography(photo, config, data, time, shot, cameraLabel)
-            WatermarkStyle.POLAROID_SIDEBAR -> renderPolaroidSidebar(photo, config, data, time, shot, cameraLabel)
+            WatermarkStyle.STUDIO_WHITE_BAR -> renderBottomBar(photo, config, data, time, shot, cameraLabel, isDark = false, hasYellowBlock = false, hasStripe = false, hasAvatar = false, isPreview = isPreview)
+            WatermarkStyle.ACCENT_BLOCK_BAR -> renderBottomBar(photo, config, data, time, shot, cameraLabel, isDark = true, hasYellowBlock = true, hasStripe = false, hasAvatar = false, isPreview = isPreview)
+            WatermarkStyle.ACCENT_STRIPE_BAR -> renderBottomBar(photo, config, data, time, shot, cameraLabel, isDark = true, hasYellowBlock = false, hasStripe = true, hasAvatar = false, isPreview = isPreview)
+            WatermarkStyle.AVATAR_WHITE_BAR -> renderBottomBar(photo, config, data, time, shot, cameraLabel, isDark = false, hasYellowBlock = false, hasStripe = false, hasAvatar = true, isPreview = isPreview)
+            WatermarkStyle.EXHIBITION_WHITE_MAT -> renderFullMatFrame(photo, config, data, time, shot, cameraLabel, bgColor = Color.WHITE, textColor = Color.BLACK, hasAvatar = config.showAvatarOnFrame, isPreview = isPreview)
+            WatermarkStyle.FILM_STRIP_35MM -> render35mmFilmStrip(photo, config, data, time, shot, cameraLabel, isPreview = isPreview)
+            WatermarkStyle.SIGNATURE_YELLOW_MAT -> renderSignatureYellowMat(photo, config, data, time, shot, cameraLabel, isPreview = isPreview)
+            WatermarkStyle.LUXURY_BLACK_MAT -> renderLuxuryBlackMat(photo, config, data, time, shot, cameraLabel, isPreview = isPreview)
+            WatermarkStyle.RETRO_VINTAGE_FILM -> renderRetroVintageFilm(photo, config, data, time, shot, cameraLabel, isPreview = isPreview)
+            WatermarkStyle.EDITORIAL_TYPOGRAPHY -> renderEditorialTypography(photo, config, data, time, shot, cameraLabel, isPreview = isPreview)
+            WatermarkStyle.POLAROID_SIDEBAR -> renderPolaroidSidebar(photo, config, data, time, shot, cameraLabel, isPreview = isPreview)
             WatermarkStyle.CLASSIC_GEO_BADGE -> photo
         }
     }
@@ -73,7 +74,7 @@ object FrameWatermarkRenderer {
     ): Bitmap? {
         val shot = params ?: ShotParams()
         val dummy = Bitmap.createBitmap(previewWidth, frameHeight, Bitmap.Config.ARGB_8888)
-        val framed = render(dummy, config, data, time, shot, cameraLabel)
+        val framed = render(dummy, config, data, time, shot, cameraLabel, isPreview = true)
         if (dummy !== framed) dummy.recycle()
         return framed
     }
@@ -93,17 +94,21 @@ object FrameWatermarkRenderer {
         hasYellowBlock: Boolean,
         hasStripe: Boolean,
         hasAvatar: Boolean,
+        isPreview: Boolean = false,
     ): Bitmap {
         val w = photo.width
         val isFull = config.frameDataDensity == FrameDataDensity.FULL
         val barH = (w * if (isFull) 0.185f else 0.115f).roundToInt().coerceIn(120, 750)
-        val outH = photo.height + barH
+        val outH = if (isPreview) photo.height else photo.height + barH
         val out = Bitmap.createBitmap(w, outH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
 
-        canvas.drawBitmap(photo, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG))
+        if (!isPreview) {
+            canvas.drawBitmap(photo, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG))
+        }
 
-        val barRect = RectF(0f, photo.height.toFloat(), w.toFloat(), outH.toFloat())
+        val barTop = if (isPreview) (outH - barH).toFloat() else photo.height.toFloat()
+        val barRect = RectF(0f, barTop, w.toFloat(), outH.toFloat())
         val bgPaint = Paint().apply {
             color = if (isDark) DARK_BG else Color.WHITE
             style = Paint.Style.FILL
@@ -113,11 +118,11 @@ object FrameWatermarkRenderer {
         if (hasStripe) {
             val stripePaint = Paint().apply { color = ACCENT_YELLOW; style = Paint.Style.FILL }
             val stripeH = (barH * 0.04f).coerceAtLeast(4f)
-            canvas.drawRect(0f, photo.height.toFloat(), w.toFloat(), photo.height + stripeH, stripePaint)
+            canvas.drawRect(0f, barTop, w.toFloat(), barTop + stripeH, stripePaint)
         }
 
         val padX = w * 0.038f
-        val centerY = photo.height + barH * 0.5f
+        val centerY = barTop + barH * 0.5f
         val textColor = if (isDark) Color.WHITE else Color.BLACK
         val subColor = if (isDark) 0xFFB0B0B0.toInt() else 0xFF666666.toInt()
 
@@ -284,6 +289,7 @@ object FrameWatermarkRenderer {
         bgColor: Int,
         textColor: Int,
         hasAvatar: Boolean,
+        isPreview: Boolean = false,
     ): Bitmap {
         val w = photo.width
         val isFull = config.frameDataDensity == FrameDataDensity.FULL
@@ -291,15 +297,31 @@ object FrameWatermarkRenderer {
         val marginTop = (w * 0.038f).roundToInt()
         val marginBottom = (w * if (isFull) 0.20f else 0.125f).roundToInt()
 
-        val outW = w + marginSide * 2
-        val outH = photo.height + marginTop + marginBottom
+        val outW = if (isPreview) w else w + marginSide * 2
+        val outH = if (isPreview) photo.height else photo.height + marginTop + marginBottom
         val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
 
         canvas.drawColor(bgColor)
-        canvas.drawBitmap(photo, marginSide.toFloat(), marginTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
 
-        val bottomAreaY = marginTop + photo.height
+        if (!isPreview) {
+            canvas.drawBitmap(photo, marginSide.toFloat(), marginTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
+        } else {
+            val clearPaint = Paint().apply {
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
+            }
+            canvas.drawRect(
+                RectF(
+                    marginSide.toFloat(),
+                    marginTop.toFloat(),
+                    (outW - marginSide).toFloat(),
+                    (outH - marginBottom).toFloat()
+                ),
+                clearPaint
+            )
+        }
+
+        val bottomAreaY = if (isPreview) (outH - marginBottom).toFloat() else (marginTop + photo.height).toFloat()
         val centerY = bottomAreaY + marginBottom * 0.48f
         val padX = marginSide.toFloat() * 1.2f
         val subColor = if (textColor == Color.WHITE) 0xFFB0B0B0.toInt() else 0xFF666666.toInt()
@@ -445,6 +467,7 @@ object FrameWatermarkRenderer {
         time: ZonedDateTime,
         shot: ShotParams,
         cameraLabel: String?,
+        isPreview: Boolean = false,
     ): Bitmap {
         val w = photo.width
         val isFull = config.frameDataDensity == FrameDataDensity.FULL
@@ -452,26 +475,50 @@ object FrameWatermarkRenderer {
         val marginTop = (w * (if (isFull) 0.11f else 0.095f)).roundToInt()
         val marginBottom = (w * (if (isFull) 0.19f else 0.145f)).roundToInt()
 
-        val outW = w + marginSide * 2
-        val outH = photo.height + marginTop + marginBottom
+        val outW = if (isPreview) w else w + marginSide * 2
+        val outH = if (isPreview) photo.height else photo.height + marginTop + marginBottom
         val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
 
         canvas.drawColor(FILM_DARK)
-        canvas.drawBitmap(photo, marginSide.toFloat(), marginTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
+
+        if (!isPreview) {
+            canvas.drawBitmap(photo, marginSide.toFloat(), marginTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
+        } else {
+            val clearPaint = Paint().apply {
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
+            }
+            canvas.drawRect(
+                RectF(
+                    marginSide.toFloat(),
+                    marginTop.toFloat(),
+                    (outW - marginSide).toFloat(),
+                    (outH - marginBottom).toFloat()
+                ),
+                clearPaint
+            )
+        }
 
         val sprocketW = outW * 0.028f
-        val sprocketH = marginTop * 0.40f
-        val sprocketYTop = marginTop * 0.25f
+        val sprocketH = (marginTop * 0.35f).coerceAtLeast(12f)
+        val sprocketYTop = marginTop * 0.22f
         drawSprocketsRow(canvas, outW.toFloat(), sprocketYTop, sprocketW, sprocketH)
 
-        val sprocketYBottom = outH - marginBottom * 0.25f
-        drawSprocketsRow(canvas, outW.toFloat(), sprocketYBottom, sprocketW, sprocketH)
+        val bottomSprocketH = (marginBottom * 0.16f).coerceAtLeast(12f)
+        val sprocketYBottom = outH - (marginBottom * 0.12f)
+        drawSprocketsRow(canvas, outW.toFloat(), sprocketYBottom, sprocketW, bottomSprocketH)
 
-        val amberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val amberLeftPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = ACCENT_YELLOW
             textSize = marginBottom * (if (isFull) 0.115f else 0.18f)
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.LEFT
+        }
+        val amberRightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = ACCENT_YELLOW
+            textSize = marginBottom * (if (isFull) 0.115f else 0.18f)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
         }
 
         val brand = config.deviceBrand.ifBlank { "POCO X7" }
@@ -493,29 +540,29 @@ object FrameWatermarkRenderer {
             val comp = data.azimuthDeg?.let { "  ·  🧭 %.0f° %s".format(Locale.US, it, WatermarkRenderer.direction(it)) } ?: ""
             val leftTopText = "$frameNo$site$comp"
             val rightTopText = formatDateTime(time, config)
-            drawLeftRightText(canvas, topTextY, leftX, rightX, leftTopText, topPaint, rightTopText, topPaint)
+            val topPaintRight = Paint(topPaint).apply { textAlign = Paint.Align.RIGHT }
+            drawLeftRightText(canvas, topTextY, leftX, rightX, leftTopText, topPaint, rightTopText, topPaintRight)
 
             // Bottom Area text
-            val textBaseY = marginTop + photo.height + marginBottom * 0.24f
+            val textBaseY = (if (isPreview) outH - marginBottom else marginTop + photo.height) + marginBottom * 0.24f
             val lineSpacing = marginBottom * 0.24f
 
             // Line 1: Brand & Badge (Left) vs EXIF (Right)
             drawBrandWithBadge(canvas, leftX, textBaseY, brand, badge, ACCENT_YELLOW, ACCENT_YELLOW, marginBottom * 0.15f)
             val brandBadgeW = estimateBrandBadgeWidth(brand, badge, marginBottom * 0.15f)
             val exif = if (config.showExifParams) shot.formatExifSummary(" ") else ""
-            val safeExif = truncateText(exif, amberPaint, (rightX - (leftX + brandBadgeW + 20f)).coerceAtLeast(0f))
-            amberPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(safeExif, rightX, textBaseY, amberPaint)
+            val safeExif = truncateText(exif, amberRightPaint, (rightX - (leftX + brandBadgeW + 20f)).coerceAtLeast(0f))
+            canvas.drawText(safeExif, rightX, textBaseY, amberRightPaint)
 
             // Line 2: Address / GPS (Left) vs Weather & Sensors (Right)
             val gpsStr = buildGpsAndLocationLine(data, config)
             val addr = buildAddressLine(data, config)
             val leftLine2 = listOf(addr, gpsStr).filter { it.isNotBlank() }.joinToString("  ·  ")
             val weatherStr = buildWeatherAndSensorsLine(data, config)
-            drawLeftRightText(canvas, textBaseY + lineSpacing, leftX, rightX, leftLine2, amberPaint, weatherStr, amberPaint)
+            drawLeftRightText(canvas, textBaseY + lineSpacing, leftX, rightX, leftLine2, amberLeftPaint, weatherStr, amberRightPaint)
 
         } else {
-            val textY = marginTop + photo.height + marginBottom * 0.32f
+            val textY = (if (isPreview) outH - marginBottom else marginTop + photo.height) + marginBottom * 0.32f
             val dtStr = formatDateTime(time, config)
             val exifSummary = if (config.showExifParams) shot.formatExifSummary(" ") else ""
             val gpsStr = buildGpsCoordinatesString(data, config)
@@ -525,15 +572,13 @@ object FrameWatermarkRenderer {
             val centerLeftLimit = outW * 0.5f - brandW * 0.5f - 15f
             val centerRightLimit = outW * 0.5f + brandW * 0.5f + 15f
 
-            val safeDt = truncateText(dtStr, amberPaint, (centerLeftLimit - leftX).coerceAtLeast(0f))
-            amberPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText(safeDt, leftX, textY, amberPaint)
+            val safeDt = truncateText(dtStr, amberLeftPaint, (centerLeftLimit - leftX).coerceAtLeast(0f))
+            canvas.drawText(safeDt, leftX, textY, amberLeftPaint)
 
             drawBrandWithBadge(canvas, outW * 0.5f, textY, brand, badge, ACCENT_YELLOW, ACCENT_YELLOW, marginBottom * 0.20f, isCenter = true)
 
-            val safeRight = truncateText(rightText, amberPaint, (rightX - centerRightLimit).coerceAtLeast(0f))
-            amberPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(safeRight, rightX, textY, amberPaint)
+            val safeRight = truncateText(rightText, amberRightPaint, (rightX - centerRightLimit).coerceAtLeast(0f))
+            canvas.drawText(safeRight, rightX, textY, amberRightPaint)
         }
 
         return out
@@ -568,6 +613,7 @@ object FrameWatermarkRenderer {
         time: ZonedDateTime,
         shot: ShotParams,
         cameraLabel: String?,
+        isPreview: Boolean = false,
     ): Bitmap {
         return renderFullMatFrame(
             photo = photo,
@@ -579,6 +625,7 @@ object FrameWatermarkRenderer {
             bgColor = ACCENT_YELLOW,
             textColor = Color.BLACK,
             hasAvatar = config.showAvatarOnFrame,
+            isPreview = isPreview,
         )
     }
 
@@ -593,6 +640,7 @@ object FrameWatermarkRenderer {
         time: ZonedDateTime,
         shot: ShotParams,
         cameraLabel: String?,
+        isPreview: Boolean = false,
     ): Bitmap {
         return renderFullMatFrame(
             photo = photo,
@@ -604,6 +652,7 @@ object FrameWatermarkRenderer {
             bgColor = 0xFF0D0D0F.toInt(),
             textColor = Color.WHITE,
             hasAvatar = config.showAvatarOnFrame,
+            isPreview = isPreview,
         )
     }
 
@@ -618,6 +667,7 @@ object FrameWatermarkRenderer {
         time: ZonedDateTime,
         shot: ShotParams,
         cameraLabel: String?,
+        isPreview: Boolean = false,
     ): Bitmap {
         val w = photo.width
         val isFull = config.frameDataDensity == FrameDataDensity.FULL
@@ -625,18 +675,41 @@ object FrameWatermarkRenderer {
         val marginTop = (w * (if (isFull) 0.10f else 0.07f)).roundToInt()
         val marginBottom = (w * (if (isFull) 0.18f else 0.13f)).roundToInt()
 
-        val outW = w + marginSide * 2
-        val outH = photo.height + marginTop + marginBottom
+        val outW = if (isPreview) w else w + marginSide * 2
+        val outH = if (isPreview) photo.height else photo.height + marginTop + marginBottom
         val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
 
         canvas.drawColor(0xFF141311.toInt())
-        canvas.drawBitmap(photo, marginSide.toFloat(), marginTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
 
-        val amberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        if (!isPreview) {
+            canvas.drawBitmap(photo, marginSide.toFloat(), marginTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
+        } else {
+            val clearPaint = Paint().apply {
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
+            }
+            canvas.drawRect(
+                RectF(
+                    marginSide.toFloat(),
+                    marginTop.toFloat(),
+                    (outW - marginSide).toFloat(),
+                    (outH - marginBottom).toFloat()
+                ),
+                clearPaint
+            )
+        }
+
+        val amberLeftPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFFFB300.toInt()
             textSize = marginTop * 0.38f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.LEFT
+        }
+        val amberRightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFB300.toInt()
+            textSize = marginTop * 0.38f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
         }
 
         // Top edge: ►► Chevron code & Site/Weather
@@ -646,9 +719,9 @@ object FrameWatermarkRenderer {
         val topWeather = if (isFull) buildWeatherAndSensorsLine(data, config) else "ISO ${shot.iso ?: 400}"
         val leftX = marginSide.toFloat() * 1.2f
         val rightX = outW - marginSide.toFloat() * 1.2f
-        drawLeftRightText(canvas, topY, leftX, rightX, topCode, amberPaint, topWeather, amberPaint)
+        drawLeftRightText(canvas, topY, leftX, rightX, topCode, amberLeftPaint, topWeather, amberRightPaint)
 
-        val bottomY = marginTop + photo.height + marginBottom * 0.45f
+        val bottomY = (if (isPreview) outH - marginBottom else marginTop + photo.height) + marginBottom * 0.45f
         val brand = config.deviceBrand.ifBlank { "POCO X7" }
         val badge = config.deviceBadge.ifBlank { "Pro" }
 
@@ -658,15 +731,14 @@ object FrameWatermarkRenderer {
             drawBrandWithBadge(canvas, leftX, bottomY - lineSpacing * 0.5f, brand, badge, 0xFFFFB300.toInt(), 0xFFFFB300.toInt(), marginBottom * 0.17f)
 
             val exif = if (config.showExifParams) shot.formatExifSummary(" ") else ""
-            val safeExif = truncateText(exif, amberPaint, (rightX - (leftX + brandBadgeW + 20f)).coerceAtLeast(0f))
-            amberPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(safeExif, rightX, bottomY - lineSpacing * 0.5f, amberPaint)
+            val safeExif = truncateText(exif, amberRightPaint, (rightX - (leftX + brandBadgeW + 20f)).coerceAtLeast(0f))
+            canvas.drawText(safeExif, rightX, bottomY - lineSpacing * 0.5f, amberRightPaint)
 
             val gpsStr = buildGpsAndLocationLine(data, config)
             val addr = buildAddressLine(data, config)
             val subLine = listOf(addr, gpsStr).filter { it.isNotBlank() }.joinToString("  ·  ")
             val dtStr = formatDateTime(time, config)
-            drawLeftRightText(canvas, bottomY + lineSpacing * 0.5f, leftX, rightX, subLine, amberPaint, dtStr, amberPaint)
+            drawLeftRightText(canvas, bottomY + lineSpacing * 0.5f, leftX, rightX, subLine, amberLeftPaint, dtStr, amberRightPaint)
         } else {
             val dtStr = formatDateTime(time, config)
             val exifSummary = if (config.showExifParams) shot.formatExifSummary(" ") else ""
@@ -677,15 +749,13 @@ object FrameWatermarkRenderer {
             val centerLeftLimit = outW * 0.5f - brandW * 0.5f - 15f
             val centerRightLimit = outW * 0.5f + brandW * 0.5f + 15f
 
-            val safeDt = truncateText(dtStr, amberPaint, (centerLeftLimit - leftX).coerceAtLeast(0f))
-            amberPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText(safeDt, leftX, bottomY, amberPaint)
+            val safeDt = truncateText(dtStr, amberLeftPaint, (centerLeftLimit - leftX).coerceAtLeast(0f))
+            canvas.drawText(safeDt, leftX, bottomY, amberLeftPaint)
 
             drawBrandWithBadge(canvas, outW * 0.5f, bottomY, brand, badge, 0xFFFFB300.toInt(), 0xFFFFB300.toInt(), marginBottom * 0.22f, isCenter = true)
 
-            val safeRight = truncateText(rightText, amberPaint, (rightX - centerRightLimit).coerceAtLeast(0f))
-            amberPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(safeRight, rightX, bottomY, amberPaint)
+            val safeRight = truncateText(rightText, amberRightPaint, (rightX - centerRightLimit).coerceAtLeast(0f))
+            canvas.drawText(safeRight, rightX, bottomY, amberRightPaint)
         }
 
         return out
@@ -702,6 +772,7 @@ object FrameWatermarkRenderer {
         time: ZonedDateTime,
         shot: ShotParams,
         cameraLabel: String?,
+        isPreview: Boolean = false,
     ): Bitmap {
         val w = photo.width
         val isFull = config.frameDataDensity == FrameDataDensity.FULL
@@ -709,18 +780,24 @@ object FrameWatermarkRenderer {
         val marginTop = (w * 0.035f).roundToInt()
         val marginBottom = (w * (if (isFull) 0.22f else 0.175f)).roundToInt()
 
-        val outW = w + marginSide * 2
-        val outH = photo.height + marginTop + marginBottom
+        val outW = if (isPreview) w else w + marginSide * 2
+        val outH = if (isPreview) photo.height else photo.height + marginTop + marginBottom
         val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
 
-        canvas.drawColor(0xFF101012.toInt())
-        canvas.drawBitmap(photo, marginSide.toFloat(), marginTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
+        val bottomRect = RectF(0f, (outH - marginBottom).toFloat(), outW.toFloat(), outH.toFloat())
+        val darkPaint = Paint().apply { color = 0xFF101012.toInt(); style = Paint.Style.FILL }
+        canvas.drawRect(bottomRect, darkPaint)
+
+        if (!isPreview) {
+            canvas.drawColor(0xFF101012.toInt())
+            canvas.drawBitmap(photo, marginSide.toFloat(), marginTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
+        }
 
         val startX = marginSide.toFloat() * 1.3f
         val maxRightX = outW - marginSide.toFloat() * 1.3f
         val maxLineWidth = (maxRightX - startX).coerceAtLeast(0f)
-        val baseTop = marginTop + photo.height + marginBottom * 0.20f
+        val baseTop = (if (isPreview) outH - marginBottom else marginTop + photo.height) + marginBottom * 0.20f
         val lineSpacing = marginBottom * 0.20f
 
         val brand = config.deviceBrand.ifBlank { "POCO X7" }
@@ -804,18 +881,25 @@ object FrameWatermarkRenderer {
         time: ZonedDateTime,
         shot: ShotParams,
         cameraLabel: String?,
+        isPreview: Boolean = false,
     ): Bitmap {
         val h = photo.height
         val isFull = config.frameDataDensity == FrameDataDensity.FULL
         val sideW = (h * if (isFull) 0.28f else 0.22f).roundToInt().coerceIn(240, 850)
-        val outW = photo.width + sideW
+        val outW = if (isPreview) photo.width else photo.width + sideW
         val out = Bitmap.createBitmap(outW, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
 
-        canvas.drawColor(Color.WHITE)
-        canvas.drawBitmap(photo, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG))
+        val sideLeft = (outW - sideW).toFloat()
+        val sideRect = RectF(sideLeft, 0f, outW.toFloat(), h.toFloat())
+        val sidePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL }
+        canvas.drawRect(sideRect, sidePaint)
 
-        val barCenterX = photo.width + sideW * 0.5f
+        if (!isPreview) {
+            canvas.drawBitmap(photo, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG))
+        }
+
+        val barCenterX = sideLeft + sideW * 0.5f
         val centerY = h * 0.5f
 
         val brand = config.deviceBrand.ifBlank { "POCO X7" }
@@ -962,12 +1046,11 @@ object FrameWatermarkRenderer {
         val rawLeftW = leftPaint.measureText(cleanLeft)
         val rawRightW = rightPaint.measureText(cleanRight)
 
-        leftPaint.textAlign = Paint.Align.LEFT
-        rightPaint.textAlign = Paint.Align.RIGHT
-
         if (rawLeftW + rawRightW <= availableW) {
             // Both fit comfortably with room to spare!
+            leftPaint.textAlign = Paint.Align.LEFT
             canvas.drawText(cleanLeft, leftX, y, leftPaint)
+            rightPaint.textAlign = Paint.Align.RIGHT
             canvas.drawText(cleanRight, rightX, y, rightPaint)
             return
         }
@@ -985,7 +1068,9 @@ object FrameWatermarkRenderer {
         val maxLeftW = (availableW - actualRightW).coerceAtLeast(0f)
         val safeLeft = truncateText(cleanLeft, leftPaint, maxLeftW)
 
+        leftPaint.textAlign = Paint.Align.LEFT
         canvas.drawText(safeLeft, leftX, y, leftPaint)
+        rightPaint.textAlign = Paint.Align.RIGHT
         canvas.drawText(safeRight, rightX, y, rightPaint)
     }
 

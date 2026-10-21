@@ -105,6 +105,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -447,7 +448,7 @@ fun CameraScreen(
     }
 
     val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE || configuration.screenWidthDp > configuration.screenHeightDp
     val nativeRatio = bind?.nativeRatio ?: (4f / 3f)
     val photoCrop = !mode.isVideo && cam.photoAspect.cropped && bind?.format != PhotoFormat.RAW
     val frameLongShort = if (photoCrop) cam.photoAspect.ratio else nativeRatio
@@ -988,240 +989,285 @@ fun CameraScreen(
         "$res ${cam.videoAspect.label}$color"
     }
 
-    Row(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black),
-    ) {
-        // Main camera area (Top bar, Info bar, Viewfinder, and portrait controls if portrait)
-        Column(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-        ) {
-            // ---- Top Bar (Material 3 Header) ----
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.82f),
-                modifier = Modifier
+    @Composable
+    fun TopBarContent(isLandscape: Boolean) {
+        Column(Modifier.fillMaxWidth()) {
+            // Tier 1: Fixed primary action bar with guaranteed settings visibility
+            Row(
+                Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding(),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.fillMaxWidth()) {
-                    // Tier 1: Fixed primary action bar with guaranteed settings visibility
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        // Left controls: Flash toggle & Grid Guide toggle
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            if (mode == CaptureMode.PHOTO) {
-                                IconButton(onClick = {
-                                    flash = when (flash) {
-                                        ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
-                                        ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
-                                        else -> ImageCapture.FLASH_MODE_OFF
-                                    }
-                                    controller.flashMode = flash
-                                }) {
-                                    Icon(
-                                        when (flash) {
-                                            ImageCapture.FLASH_MODE_AUTO -> Icons.Filled.FlashAuto
-                                            ImageCapture.FLASH_MODE_ON -> Icons.Filled.FlashOn
-                                            else -> Icons.Filled.FlashOff
-                                        },
-                                        contentDescription = "Flash",
-                                        tint = if (flash != ImageCapture.FLASH_MODE_OFF) MaterialTheme.colorScheme.primary else Color.White,
-                                    )
+                // Left controls: Flash toggle & Grid Guide toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    if (mode == CaptureMode.PHOTO) {
+                        IconButton(
+                            onClick = {
+                                flash = when (flash) {
+                                    ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
+                                    ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
+                                    else -> ImageCapture.FLASH_MODE_OFF
                                 }
-                            }
-                            IconButton(onClick = {
-                                cam.grid = when (cam.grid) {
-                                    GridType.OFF -> GridType.THIRDS
-                                    GridType.THIRDS -> GridType.CROSSHAIR
-                                    GridType.CROSSHAIR -> GridType.BOTH
-                                    GridType.BOTH -> GridType.OFF
-                                }
-                            }) {
-                                Icon(
-                                    if (cam.grid != GridType.OFF) Icons.Filled.GridOn else Icons.Filled.GridOff,
-                                    contentDescription = "Grid Guides",
-                                    tint = if (cam.grid != GridType.OFF) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f),
-                                )
-                            }
-                        }
-
-                        // Center: GPS Status Pill (tap to refresh)
-                        Surface(
-                            shape = CircleShape,
-                            color = if (data.latitude != null) MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                            border = BorderStroke(1.dp, if (data.latitude != null) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f) else Color.Transparent),
-                            modifier = Modifier.clickable {
-                                repo.refreshAll()
-                                Toast.makeText(context, "GPS location updated", Toast.LENGTH_SHORT).show()
+                                controller.flashMode = flash
                             },
+                            modifier = Modifier.size(38.dp),
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            ) {
-                                Box(
-                                    Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(if (data.latitude != null) Color(0xFF4CAF50) else Color(0xFFFFB300))
-                                )
-                                Text(
-                                    text = if (data.latitude != null) String.format(Locale.US, "GPS ±%.0fm", data.accuracyM ?: 0f) else "GPS Searching…",
-                                    color = if (data.latitude != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                )
-                            }
-                        }
-
-                        // Right controls: PRO toggle, TOOLS toggle, and ALWAYS VISIBLE Settings Button
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            // Pro manual toggle pill
-                            Surface(
-                                shape = CircleShape,
-                                color = if (showProBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f),
-                                border = BorderStroke(1.dp, if (showProBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                                modifier = Modifier.clickable {
-                                    showProBar = !showProBar
-                                    if (!showProBar) openPanel = null
+                            Icon(
+                                when (flash) {
+                                    ImageCapture.FLASH_MODE_AUTO -> Icons.Filled.FlashAuto
+                                    ImageCapture.FLASH_MODE_ON -> Icons.Filled.FlashOn
+                                    else -> Icons.Filled.FlashOff
                                 },
-                            ) {
-                                Text(
-                                    "PRO",
-                                    color = if (showProBar) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                )
-                            }
-
-                            // Quick tools toggle button
-                            IconButton(
-                                onClick = { showToolsBar = !showToolsBar },
-                                modifier = Modifier.size(38.dp),
-                            ) {
-                                Icon(
-                                    Icons.Filled.Tune,
-                                    contentDescription = "Quick Tools",
-                                    tint = if (showToolsBar) MaterialTheme.colorScheme.primary else Color.White,
-                                )
-                            }
-
-                            // Prominent, guaranteed Material 3 Settings Button
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                shadowElevation = 3.dp,
-                                modifier = Modifier.size(38.dp),
-                            ) {
-                                IconButton(
-                                    onClick = onOpenSettings,
-                                    enabled = !isRecording,
-                                    modifier = Modifier.fillMaxSize(),
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Settings,
-                                        contentDescription = "Settings",
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.size(22.dp),
-                                    )
-                                }
-                            }
+                                contentDescription = "Flash",
+                                tint = if (flash != ImageCapture.FLASH_MODE_OFF) MaterialTheme.colorScheme.primary else Color.White,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                     }
+                    IconButton(
+                        onClick = {
+                            cam.grid = when (cam.grid) {
+                                GridType.OFF -> GridType.THIRDS
+                                GridType.THIRDS -> GridType.CROSSHAIR
+                                GridType.CROSSHAIR -> GridType.BOTH
+                                GridType.BOTH -> GridType.OFF
+                            }
+                        },
+                        modifier = Modifier.size(38.dp),
+                    ) {
+                        Icon(
+                            if (cam.grid != GridType.OFF) Icons.Filled.GridOn else Icons.Filled.GridOff,
+                            contentDescription = "Grid Guides",
+                            tint = if (cam.grid != GridType.OFF) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
 
-                    // Tier 2: Horizontally scrollable quick-controls strip (shown when showToolsBar is ON)
-                    if (showToolsBar) {
+                // Center: GPS Status Pill (weighted so it never crowds out action buttons)
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (data.latitude != null) MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                        border = BorderStroke(1.dp, if (data.latitude != null) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f) else Color.Transparent),
+                        modifier = Modifier.clickable {
+                            repo.refreshAll()
+                            Toast.makeText(context, "GPS location updated", Toast.LENGTH_SHORT).show()
+                        },
+                    ) {
                         Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            val hdrSupported = if (mode == CaptureMode.PHOTO) caps.hdrPhoto else caps.videoColors.size > 1
-                            val hdrOn = bind?.hdrLabel != null
-                            QuickChip("HDR", hdrOn, hdrSupported && !isRecording) {
-                                if (mode == CaptureMode.PHOTO) cam.hdrPhoto = !cam.hdrPhoto
-                                else cam.videoColor = if (cam.videoColor != VideoColor.SDR) VideoColor.SDR
-                                else caps.videoColors.firstOrNull { it != VideoColor.SDR } ?: VideoColor.SDR
-                            }
-                            if (mode == CaptureMode.PHOTO) {
-                                QuickChip("RAW", bind?.format != null && bind?.format != PhotoFormat.JPEG, caps.anyRaw) {
-                                    cam.photoFormat = if (cam.photoFormat == PhotoFormat.JPEG) {
-                                        if (caps.rawJpeg) PhotoFormat.RAW_JPEG else PhotoFormat.RAW
-                                    } else PhotoFormat.JPEG
-                                }
-                                if (caps.nightExtension) {
-                                    QuickChip("🌙 Night", cam.photoExtension == ExtensionModeType.NIGHT, !isRecording) {
-                                        cam.photoExtension = if (cam.photoExtension == ExtensionModeType.NIGHT) ExtensionModeType.NONE else ExtensionModeType.NIGHT
-                                    }
-                                }
-                                if (caps.bokehExtension) {
-                                    QuickChip("👤 Portrait", cam.photoExtension == ExtensionModeType.BOKEH, !isRecording) {
-                                        cam.photoExtension = if (cam.photoExtension == ExtensionModeType.BOKEH) ExtensionModeType.NONE else ExtensionModeType.BOKEH
-                                    }
-                                }
-                                QuickChip("Punch In", cam.attendanceMode, !isRecording) {
-                                    toggleAttendanceMode()
-                                }
-                                QuickChip("PiP", cam.pipMode, lenses.size > 1 && !isRecording) {
-                                    cam.pipMode = !cam.pipMode
-                                }
-                                QuickChip("DOC", cam.documentMode, !isRecording) {
-                                    cam.documentMode = !cam.documentMode
-                                }
-                            }
-                            if (!mode.isVideo) {
-                                QuickChip("🎙 Voice", false, !isRecording && !busy) {
-                                    startVoiceNote()
-                                }
-                                QuickChip("🔲 QR", false, !isRecording && !busy) {
-                                    scanBarcode()
-                                }
-                                QuickChip("📄 OCR", false, !isRecording && !busy) {
-                                    scanSignboardText()
-                                }
-                                QuickChip("✨ AI Caption", false, !isRecording && !busy) {
-                                    autoCaptionScene()
-                                }
-                                if (lastThumb != null) {
-                                    QuickChip("👻 Ghost", showGhostOverlay, true) {
-                                        showGhostOverlay = !showGhostOverlay
-                                    }
-                                }
-                            }
+                            Box(
+                                Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(if (data.latitude != null) Color(0xFF4CAF50) else Color(0xFFFFB300))
+                            )
+                            Text(
+                                text = if (data.latitude != null) String.format(Locale.US, "GPS ±%.0fm", data.accuracyM ?: 0f) else "GPS Searching…",
+                                color = if (data.latitude != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+
+                // Right controls: PRO toggle, TOOLS toggle, and ALWAYS VISIBLE Settings Button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    // Pro manual toggle pill
+                    Surface(
+                        shape = CircleShape,
+                        color = if (showProBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f),
+                        border = BorderStroke(1.dp, if (showProBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                        modifier = Modifier.clickable {
+                            showProBar = !showProBar
+                            if (!showProBar) openPanel = null
+                        },
+                    ) {
+                        Text(
+                            "PRO",
+                            color = if (showProBar) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+
+                    // Quick tools toggle button
+                    IconButton(
+                        onClick = { showToolsBar = !showToolsBar },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Tune,
+                            contentDescription = "Quick Tools",
+                            tint = if (showToolsBar) MaterialTheme.colorScheme.primary else Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+
+                    // Prominent, guaranteed Material 3 Settings Button
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        shadowElevation = 3.dp,
+                        modifier = Modifier.size(38.dp),
+                    ) {
+                        IconButton(
+                            onClick = onOpenSettings,
+                            enabled = !isRecording,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            Icon(
+                                Icons.Filled.Settings,
+                                contentDescription = "Settings",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                     }
                 }
             }
 
-            // ---- Geofence status strip ----
-            val activeSitePair = remember(currentLat, currentLon, geoMgr.sites.size) {
-                geoMgr.findActiveSite(currentLat, currentLon)
+            // Tier 2: Horizontally scrollable quick-controls strip (shown when showToolsBar is ON)
+            if (showToolsBar) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    val hdrSupported = if (mode == CaptureMode.PHOTO) caps.hdrPhoto else caps.videoColors.size > 1
+                    val hdrOn = bind?.hdrLabel != null
+                    QuickChip("HDR", hdrOn, hdrSupported && !isRecording) {
+                        if (mode == CaptureMode.PHOTO) cam.hdrPhoto = !cam.hdrPhoto
+                        else cam.videoColor = if (cam.videoColor != VideoColor.SDR) VideoColor.SDR
+                        else caps.videoColors.firstOrNull { it != VideoColor.SDR } ?: VideoColor.SDR
+                    }
+                    if (mode == CaptureMode.PHOTO) {
+                        QuickChip("RAW", bind?.format != null && bind?.format != PhotoFormat.JPEG, caps.anyRaw) {
+                            cam.photoFormat = if (cam.photoFormat == PhotoFormat.JPEG) {
+                                if (caps.rawJpeg) PhotoFormat.RAW_JPEG else PhotoFormat.RAW
+                            } else PhotoFormat.JPEG
+                        }
+                        if (caps.nightExtension) {
+                            QuickChip("🌙 Night", cam.photoExtension == ExtensionModeType.NIGHT, !isRecording) {
+                                cam.photoExtension = if (cam.photoExtension == ExtensionModeType.NIGHT) ExtensionModeType.NONE else ExtensionModeType.NIGHT
+                            }
+                        }
+                        if (caps.bokehExtension) {
+                            QuickChip("👤 Portrait", cam.photoExtension == ExtensionModeType.BOKEH, !isRecording) {
+                                cam.photoExtension = if (cam.photoExtension == ExtensionModeType.BOKEH) ExtensionModeType.NONE else ExtensionModeType.BOKEH
+                            }
+                        }
+                        QuickChip("Punch In", cam.attendanceMode, !isRecording) {
+                            toggleAttendanceMode()
+                        }
+                        QuickChip("PiP", cam.pipMode, lenses.size > 1 && !isRecording) {
+                            cam.pipMode = !cam.pipMode
+                        }
+                        QuickChip("DOC", cam.documentMode, !isRecording) {
+                            cam.documentMode = !cam.documentMode
+                        }
+                    }
+                    if (!mode.isVideo) {
+                        QuickChip("🎙 Voice", false, !isRecording && !busy) {
+                            startVoiceNote()
+                        }
+                        QuickChip("🔲 QR", false, !isRecording && !busy) {
+                            scanBarcode()
+                        }
+                        QuickChip("📄 OCR", false, !isRecording && !busy) {
+                            scanSignboardText()
+                        }
+                        QuickChip("✨ AI Caption", false, !isRecording && !busy) {
+                            autoCaptionScene()
+                        }
+                        if (lastThumb != null) {
+                            QuickChip("👻 Ghost", showGhostOverlay, true) {
+                                showGhostOverlay = !showGhostOverlay
+                            }
+                        }
+                    }
+                }
             }
-            val nearestSitePair = remember(currentLat, currentLon, geoMgr.sites.size) {
-                geoMgr.findNearestSite(currentLat, currentLon)
-            }
+        }
+    }
 
+    @Composable
+    fun GeofenceSection(isLandscape: Boolean) {
+        val activeSitePair = remember(currentLat, currentLon, geoMgr.sites.size) {
+            geoMgr.findActiveSite(currentLat, currentLon)
+        }
+        val nearestSitePair = remember(currentLat, currentLon, geoMgr.sites.size) {
+            geoMgr.findNearestSite(currentLat, currentLon)
+        }
+
+        if (isLandscape) {
+            val topPad = if (showToolsBar) 92.dp else 50.dp
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(top = topPad),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                if (activeSitePair != null) {
+                    val site = activeSitePair.first
+                    val dist = activeSitePair.second
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xD91B5E20),
+                        border = BorderStroke(1.dp, Color(0xFFA5D6A7).copy(alpha = 0.5f)),
+                    ) {
+                        Text(
+                            text = "✅ ${site.name} (${dist.toInt()}m)",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                        )
+                    }
+                } else if (nearestSitePair != null) {
+                    val site = nearestSitePair.first
+                    val dist = nearestSitePair.second
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    ) {
+                        Text(
+                            text = "⚠️ Outside ${site.name} (${dist.toInt()}m)",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                        )
+                    }
+                }
+            }
+        } else {
             if (activeSitePair != null) {
                 val site = activeSitePair.first
                 val dist = activeSitePair.second
@@ -1312,281 +1358,741 @@ fun CameraScreen(
                     })
                 }
             }
+        }
+    }
 
-            // ---- Pro Manual Camera Info Bar ----
-            if (showProBar) {
-                InfoBar(
-                    mode = mode, manual = manual, readout = readout, cam = cam, sensor = sensor,
-                    formatText = formatText, open = openPanel, enabled = true,
-                    onOpen = { p ->
-                        if (isRecording && (p == Panel.FPS || p == Panel.FORMAT)) {
-                            Toast.makeText(context, "Stop recording to change this", Toast.LENGTH_SHORT).show()
-                        } else {
-                            openPanel = p
+    @Composable
+    fun CameraViewfinder(modifier: Modifier = Modifier) {
+        BoxWithConstraints(modifier) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    PreviewView(ctx).apply {
+                        scaleType = PreviewView.ScaleType.FILL_CENTER
+                        controller.surfaceProvider = surfaceProvider
+                        val scaleDetector = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                                val zs = controller.camera?.cameraInfo?.zoomState?.value ?: return true
+                                val target = (zs.zoomRatio * detector.scaleFactor).coerceIn(zs.minZoomRatio, zs.maxZoomRatio)
+                                controller.setZoomRatio(target)
+                                return true
+                            }
+                        })
+                        setOnTouchListener { view, event ->
+                            scaleDetector.onTouchEvent(event)
+                            if (event.action == MotionEvent.ACTION_UP && !scaleDetector.isInProgress) {
+                                val point = (view as PreviewView).meteringPointFactory.createPoint(event.x, event.y)
+                                if (cam.motionTrackingFocus) {
+                                    controller.startFocusTracking(point)
+                                    Toast.makeText(context, "Motion tracking focus locked", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    controller.focusAt(point)
+                                }
+                            }
+                            true
                         }
-                    },
+                    }
+                },
+            )
+
+            if (cam.focusPeaking && focusPeakingBmp != null) {
+                Image(
+                    bitmap = focusPeakingBmp!!.asImageBitmap(),
+                    contentDescription = "Focus Peaking",
+                    contentScale = ContentScale.FillBounds,
+                    alpha = 0.9f,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
 
-            // ---- preview with overlays ----
+            if (cam.exposureVerification && exposureVerificationBmp != null) {
+                Image(
+                    bitmap = exposureVerificationBmp!!.asImageBitmap(),
+                    contentDescription = "Exposure Verification",
+                    contentScale = ContentScale.FillBounds,
+                    alpha = 0.75f,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            if (showGhostOverlay && lastThumb != null && mode == CaptureMode.PHOTO) {
+                Image(
+                    bitmap = lastThumb!!.asImageBitmap(),
+                    contentDescription = "Ghost alignment overlay",
+                    contentScale = ContentScale.Crop,
+                    alpha = ghostAlpha,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            GridOverlay(cam.grid)
+            if (photoCrop) FrameMask(if (isLandscape) cam.photoAspect.ratio else 1f / cam.photoAspect.ratio, solid = true)
+            if (cam.frameGuide != FrameGuide.OFF) {
+                val r = cam.frameGuide.ratio
+                FrameMask(if (isLandscape || landscape) r else 1f / r, solid = false)
+            }
+
+            if (cam.documentMode) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(28.dp)
+                        .border(2.dp, Color(0xFF81C784), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Text(
+                        "📄 ALIGN RECEIPT / DOCUMENT",
+                        color = Color(0xFF81C784),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(Color(0x99000000), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
+
+            // Stamp preview, inside the crop frame when a cropped photo format is chosen.
             Box(
                 Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+                    .align(Alignment.Center)
+                    .aspectRatio(activeFrameRatio),
             ) {
-                BoxWithConstraints(
-                    Modifier
-                        .align(Alignment.Center)
-                        .aspectRatio(activeNativeRatio),
-                ) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            PreviewView(ctx).apply {
-                                scaleType = PreviewView.ScaleType.FILL_CENTER
-                                controller.surfaceProvider = surfaceProvider
-                                val scaleDetector = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                                    override fun onScale(detector: ScaleGestureDetector): Boolean {
-                                        val zs = controller.camera?.cameraInfo?.zoomState?.value ?: return true
-                                        val target = (zs.zoomRatio * detector.scaleFactor).coerceIn(zs.minZoomRatio, zs.maxZoomRatio)
-                                        controller.setZoomRatio(target)
-                                        return true
+                overlay?.let { ov ->
+                    if (config.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
+                        Image(
+                            bitmap = ov.asImageBitmap(),
+                            contentDescription = "Stamp preview",
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable {
+                                    settings.position = when (settings.position) {
+                                        StampPosition.BOTTOM -> StampPosition.TOP
+                                        StampPosition.TOP -> StampPosition.CENTER
+                                        StampPosition.CENTER -> StampPosition.BOTTOM
                                     }
-                                })
-                                setOnTouchListener { view, event ->
-                                    scaleDetector.onTouchEvent(event)
-                                    if (event.action == MotionEvent.ACTION_UP && !scaleDetector.isInProgress) {
-                                        val point = (view as PreviewView).meteringPointFactory.createPoint(event.x, event.y)
-                                        if (cam.motionTrackingFocus) {
-                                            controller.startFocusTracking(point)
-                                            Toast.makeText(context, "Motion tracking focus locked", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            controller.focusAt(point)
+                                },
+                        )
+                    } else {
+                        BoxWithConstraints(Modifier.fillMaxSize()) {
+                            val frac = if (isLandscape) 0.38f else (ov.width / 1080f).coerceIn(0.65f, 0.98f)
+                            val margin = maxHeight * 0.02f
+                            Image(
+                                bitmap = ov.asImageBitmap(),
+                                contentDescription = "Stamp preview",
+                                contentScale = ContentScale.FillWidth,
+                                modifier = Modifier
+                                    .align(
+                                        if (isLandscape) Alignment.BottomStart
+                                        else when (config.position) {
+                                            StampPosition.BOTTOM -> Alignment.BottomCenter
+                                            StampPosition.TOP -> Alignment.TopCenter
+                                            StampPosition.CENTER -> Alignment.Center
+                                        }
+                                    )
+                                    .clickable {
+                                        settings.position = when (settings.position) {
+                                            StampPosition.BOTTOM -> StampPosition.TOP
+                                            StampPosition.TOP -> StampPosition.CENTER
+                                            StampPosition.CENTER -> StampPosition.BOTTOM
                                         }
                                     }
-                                    true
-                                }
-                            }
-                        },
-                    )
-
-                    if (cam.focusPeaking && focusPeakingBmp != null) {
-                        Image(
-                            bitmap = focusPeakingBmp!!.asImageBitmap(),
-                            contentDescription = "Focus Peaking",
-                            contentScale = ContentScale.FillBounds,
-                            alpha = 0.9f,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    if (cam.exposureVerification && exposureVerificationBmp != null) {
-                        Image(
-                            bitmap = exposureVerificationBmp!!.asImageBitmap(),
-                            contentDescription = "Exposure Verification",
-                            contentScale = ContentScale.FillBounds,
-                            alpha = 0.75f,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    if (showGhostOverlay && lastThumb != null && mode == CaptureMode.PHOTO) {
-                        Image(
-                            bitmap = lastThumb!!.asImageBitmap(),
-                            contentDescription = "Ghost alignment overlay",
-                            contentScale = ContentScale.Crop,
-                            alpha = ghostAlpha,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    GridOverlay(cam.grid)
-                    if (photoCrop) FrameMask(if (isLandscape) cam.photoAspect.ratio else 1f / cam.photoAspect.ratio, solid = true)
-                    if (cam.frameGuide != FrameGuide.OFF) {
-                        val r = cam.frameGuide.ratio
-                        FrameMask(if (isLandscape || landscape) r else 1f / r, solid = false)
-                    }
-
-                    if (cam.documentMode) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .padding(28.dp)
-                                .border(2.dp, Color(0xFF81C784), RoundedCornerShape(12.dp)),
-                            contentAlignment = Alignment.TopCenter,
-                        ) {
-                            Text(
-                                "📄 ALIGN RECEIPT / DOCUMENT",
-                                color = Color(0xFF81C784),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .background(Color(0x99000000), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                                    .padding(horizontal = if (isLandscape) 12.dp else 8.dp, vertical = margin)
+                                    .fillMaxWidth(frac),
                             )
                         }
                     }
+                }
+            }
 
-                    // Stamp preview, inside the crop frame when a cropped photo format is chosen.
-                    Box(
-                        Modifier
-                            .align(Alignment.Center)
-                            .aspectRatio(activeFrameRatio),
+            if (cam.level) LevelIndicator(rememberRollDegrees(cam.level))
+            if (cam.histogram) {
+                HistogramView(
+                    histogram,
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = if (isLandscape) 12.dp else 8.dp, top = if (isLandscape) 56.dp else 8.dp),
+                )
+            }
+            if (isRecording) {
+                Row(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = if (isLandscape) 54.dp else 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    RecTimer(recSeconds)
+                    if (cam.allowVideoTagging) {
+                        QuickChip("🏷 Tag (${taggedMoments.size})", on = true, enabled = true) {
+                            taggedMoments.add(recSeconds)
+                            Toast.makeText(context, "Tag marked at ${recSeconds}s", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+            if (isTimelapseActive) {
+                Row(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = if (isLandscape) 54.dp else 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xCC000000))
+                        .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFE53935)))
+                    Text(
+                        "TIMELAPSE REC · Frame #$timelapseFrameCount (${cam.timelapseIntervalSec}s)",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            if (mode == CaptureMode.VIDEO && bind?.ok == true && bind?.stampOnVideo == false) {
+                Text(
+                    "Stamp not burned into video on this phone",
+                    color = Color.White, fontSize = 11.sp,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .background(Color(0x99B71C1C), RoundedCornerShape(4.dp))
+                        .padding(4.dp),
+                )
+            }
+
+            if (timerCountdown != null) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color(0x77000000)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "$timerCountdown",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 96.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Button(
+                            onClick = {
+                                timerJob?.cancel()
+                                timerCountdown = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                        ) {
+                            Text("Cancel", color = Color.White)
+                        }
+                    }
+                }
+            }
+
+            if (busy) {
+                Column(
+                    Modifier
+                        .align(Alignment.Center)
+                        .background(Color(0xAA000000), RoundedCornerShape(12.dp))
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    CircularProgressIndicator(color = Color.White)
+                    Spacer(Modifier.height(8.dp))
+                    Text(busyText, color = Color.White)
+                }
+            }
+            error?.let {
+                Text(
+                    it, color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color(0xCCB71C1C), RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+                )
+            }
+        }
+    }
+
+    @Composable
+    fun PortraitBottomDeck() {
+        Column(
+            Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Floating lens switcher or zoom presets capsule (unified)
+            if (lenses.size > 1) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    modifier = Modifier.padding(vertical = 4.dp),
+                ) {
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    lenses.forEachIndexed { i, lens ->
+                        val active = i == selected
+                        Surface(
+                            shape = CircleShape,
+                            color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            modifier = Modifier.clickable(enabled = !busy && !isRecording) { selected = i },
+                        ) {
+                            Text(
+                                text = lens.shortLabel,
+                                color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        } else if (zoomMax > 1.01f && openPanel == null) {
+            val presets = (listOf(zoomMin) + listOf(1f, 2f, 3f, 5f, 10f))
+                .filter { it in zoomMin..zoomMax }
+                .distinctBy { (it * 10).toInt() }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                presets.forEach { z ->
+                    val active = kotlin.math.abs(zoomNow - z) < 0.05f
+                    Surface(
+                        shape = CircleShape,
+                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                        border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .clickable { controller.setZoomRatio(z) },
                     ) {
-                        overlay?.let { ov ->
-                            if (config.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
-                                Image(
-                                    bitmap = ov.asImageBitmap(),
-                                    contentDescription = "Stamp preview",
-                                    contentScale = ContentScale.FillBounds,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clickable {
-                                            settings.position = when (settings.position) {
-                                                StampPosition.BOTTOM -> StampPosition.TOP
-                                                StampPosition.TOP -> StampPosition.CENTER
-                                                StampPosition.CENTER -> StampPosition.BOTTOM
-                                            }
-                                        },
-                                )
-                            } else {
-                                BoxWithConstraints(Modifier.fillMaxSize()) {
-                                    val frac = (ov.width / 1080f).coerceIn(0.65f, 0.98f)
-                                    val margin = maxHeight * 0.02f
-                                    Image(
-                                        bitmap = ov.asImageBitmap(),
-                                        contentDescription = "Stamp preview",
-                                        contentScale = ContentScale.FillWidth,
-                                        modifier = Modifier
-                                            .align(
-                                                when (config.position) {
-                                                    StampPosition.BOTTOM -> Alignment.BottomCenter
-                                                    StampPosition.TOP -> Alignment.TopCenter
-                                                    StampPosition.CENTER -> Alignment.Center
-                                                }
-                                            )
-                                            .clickable {
-                                                settings.position = when (settings.position) {
-                                                    StampPosition.BOTTOM -> StampPosition.TOP
-                                                    StampPosition.TOP -> StampPosition.CENTER
-                                                    StampPosition.CENTER -> StampPosition.BOTTOM
-                                                }
-                                            }
-                                            .padding(horizontal = 8.dp, vertical = margin)
-                                            .fillMaxWidth(frac),
+                        Text(
+                            text = if (z < 1f) String.format(Locale.US, "%.1fx", z) else "${z.toInt()}x",
+                            color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        // Capture mode selector (Material 3 segmented pill)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.65f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CaptureMode.entries.forEach { m ->
+                        val active = mode == m
+                        Surface(
+                            shape = CircleShape,
+                            color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            modifier = Modifier
+                                .clickable(enabled = !busy && !isRecording) {
+                                    mode = m
+                                    openPanel = null
+                                }
+                                .padding(horizontal = 2.dp),
+                        ) {
+                            Text(
+                                text = m.name,
+                                color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Shutter and Action Row
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            // Left: Thumbnail preview & quick share
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(2.dp, Color(0x55FFFFFF), RoundedCornerShape(14.dp))
+                        .background(Color(0x33FFFFFF))
+                        .clickable(enabled = lastUri != null && !isRecording) {
+                            lastUri?.let { uri ->
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(uri, lastMime)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                runCatching { context.startActivity(intent) }
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val t = lastThumb
+                    if (t != null) {
+                        Image(t.asImageBitmap(), "Last capture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    } else if (lastUri != null) {
+                        Text(if (lastMime.startsWith("video")) "VID" else "RAW", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+                if (lastUri != null && !isRecording && !isTimelapseActive) {
+                    IconButton(onClick = { shareLastToWhatsApp() }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Filled.Share, "Share via WhatsApp", tint = Color(0xFF25D366), modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(onClick = { uploadLastToGoogleDrive() }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Filled.CloudUpload, "Upload to Google Drive", tint = Color(0xFF4285F4), modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+
+            // Center: Dual-Ring Shutter Button + Snapshot button
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ShutterButton(
+                    mode = mode,
+                    busy = busy,
+                    isRecording = isRecording,
+                    isTimelapseActive = isTimelapseActive,
+                    isReady = bind?.ok == true,
+                    attendanceMode = cam.attendanceMode,
+                    onPhotoClick = { shoot() },
+                    onVideoClick = { toggleRecording() },
+                    onTimelapseClick = { toggleTimelapse() },
+                )
+                if (isRecording) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0x55FFFFFF),
+                        border = BorderStroke(2.dp, Color.White),
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        IconButton(onClick = { takeVideoSnapshot() }, enabled = !busy, modifier = Modifier.fillMaxSize()) {
+                            Icon(Icons.Filled.CameraAlt, contentDescription = "Take Snapshot", tint = Color.White, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                }
+            }
+
+            // Right: Camera Switch (Flip) & Timer/Burst chips
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (mode == CaptureMode.PHOTO) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        QuickChip(
+                            if (cam.timerSeconds > 0) "⏱${cam.timerSeconds}s" else "⏱Off",
+                            cam.timerSeconds > 0,
+                            !isRecording && !busy,
+                        ) {
+                            cam.timerSeconds = when (cam.timerSeconds) {
+                                0 -> 3
+                                3 -> 5
+                                5 -> 10
+                                else -> 0
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        QuickChip(
+                            "💥${cam.burstCount}x",
+                            cam.burstCount > 1,
+                            !isRecording && !busy,
+                        ) {
+                            cam.burstCount = when (cam.burstCount) {
+                                1 -> 3
+                                3 -> 5
+                                else -> 1
+                            }
+                        }
+                    }
+                } else if (mode == CaptureMode.TIMELAPSE) {
+                    QuickChip("⏱ ${cam.timelapseIntervalSec}s", true, !isTimelapseActive) {
+                        cam.timelapseIntervalSec = when (cam.timelapseIntervalSec) {
+                            1 -> 2
+                            2 -> 5
+                            5 -> 10
+                            10 -> 30
+                            else -> 1
+                        }
+                    }
+                } else if (mode == CaptureMode.SLOW_MO) {
+                    QuickChip("⚡ ${cam.slowMoSpeed.label}", true, !isRecording) {
+                        cam.slowMoSpeed = when (cam.slowMoSpeed) {
+                            SlowMoSpeed.X2 -> SlowMoSpeed.X4
+                            SlowMoSpeed.X4 -> SlowMoSpeed.X8
+                            SlowMoSpeed.X8 -> SlowMoSpeed.X2
+                        }
+                    }
+                }
+
+                // Dedicated Flip Camera Button
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.size(52.dp),
+                ) {
+                    IconButton(
+                        onClick = { flipCamera() },
+                        enabled = !busy && !isRecording && lenses.size > 1,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        Icon(
+                            Icons.Filled.Cameraswitch,
+                            contentDescription = "Flip Camera",
+                            tint = if (lenses.size > 1) Color.White else Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.size(26.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+    }
+
+    @Composable
+    fun LandscapeRightDeck() {
+        Column(
+            Modifier
+                .width(96.dp)
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.92f))
+                .navigationBarsPadding()
+                .padding(vertical = 8.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            // Top: Compact mode selector
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                CaptureMode.entries.forEach { m ->
+                    val active = mode == m
+                    Surface(
+                        shape = CircleShape,
+                        color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        modifier = Modifier
+                            .clickable(enabled = !busy && !isRecording) {
+                                mode = m
+                                openPanel = null
+                            }
+                            .padding(vertical = 1.dp),
+                    ) {
+                        Text(
+                            text = m.name,
+                            color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Normal,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
+                }
+            }
+
+            // Center: Lens switcher capsule + Shutter button
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (lenses.isNotEmpty()) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            lenses.forEachIndexed { i, lens ->
+                                val active = i == selected
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    modifier = Modifier.clickable(enabled = !busy && !isRecording) { selected = i },
+                                ) {
+                                    Text(
+                                        text = lens.shortLabel,
+                                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     )
                                 }
                             }
                         }
                     }
+                }
 
-                    if (cam.level) LevelIndicator(rememberRollDegrees(cam.level))
-                    if (cam.histogram) {
-                        HistogramView(histogram, Modifier.align(Alignment.TopStart).padding(8.dp))
+                ShutterButton(
+                    mode = mode,
+                    busy = busy,
+                    isRecording = isRecording,
+                    isTimelapseActive = isTimelapseActive,
+                    isReady = bind?.ok == true,
+                    attendanceMode = cam.attendanceMode,
+                    onPhotoClick = { shoot() },
+                    onVideoClick = { toggleRecording() },
+                    onTimelapseClick = { toggleTimelapse() },
+                )
+
+                if (isRecording) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0x55FFFFFF),
+                        border = BorderStroke(2.dp, Color.White),
+                        modifier = Modifier.size(44.dp),
+                    ) {
+                        IconButton(onClick = { takeVideoSnapshot() }, enabled = !busy, modifier = Modifier.fillMaxSize()) {
+                            Icon(Icons.Filled.CameraAlt, contentDescription = "Take Snapshot", tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
                     }
-                    if (isRecording) {
-                        Row(
-                            Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            RecTimer(recSeconds)
-                            if (cam.allowVideoTagging) {
-                                QuickChip("🏷 Tag (${taggedMoments.size})", on = true, enabled = true) {
-                                    taggedMoments.add(recSeconds)
-                                    Toast.makeText(context, "Tag marked at ${recSeconds}s", Toast.LENGTH_SHORT).show()
-                                }
+                }
+            }
+
+            // Bottom: Thumbnail & Flip Camera
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.5.dp, Color(0x55FFFFFF), RoundedCornerShape(10.dp))
+                        .background(Color(0x33FFFFFF))
+                        .clickable(enabled = lastUri != null && !isRecording) {
+                            lastUri?.let { uri ->
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(uri, lastMime)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                runCatching { context.startActivity(intent) }
                             }
-                        }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val t = lastThumb
+                    if (t != null) {
+                        Image(t.asImageBitmap(), "Last capture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    } else if (lastUri != null) {
+                        Text(if (lastMime.startsWith("video")) "VID" else "RAW", color = Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                     }
-                    if (isTimelapseActive) {
-                        Row(
-                            Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 8.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xCC000000))
-                                .border(1.dp, Accent, RoundedCornerShape(12.dp))
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFE53935)))
-                            Text(
-                                "TIMELAPSE REC · Frame #$timelapseFrameCount (${cam.timelapseIntervalSec}s)",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
-                    if (mode == CaptureMode.VIDEO && bind?.ok == true && bind?.stampOnVideo == false) {
-                        Text(
-                            "Stamp not burned into video on this phone",
-                            color = Color.White, fontSize = 11.sp,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(8.dp)
-                                .background(Color(0x99B71C1C), RoundedCornerShape(4.dp))
-                                .padding(4.dp),
+                }
+
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    IconButton(
+                        onClick = { flipCamera() },
+                        enabled = !busy && !isRecording && lenses.size > 1,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        Icon(
+                            Icons.Filled.Cameraswitch,
+                            contentDescription = "Flip Camera",
+                            tint = if (lenses.size > 1) Color.White else Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.size(20.dp),
                         )
                     }
+                }
+            }
+        }
+    }
 
-                    if (timerCountdown != null) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(Color(0x77000000)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    "$timerCountdown",
-                                    color = Accent,
-                                    fontSize = 96.sp,
-                                    fontWeight = FontWeight.Black,
-                                )
-                                Spacer(Modifier.height(16.dp))
-                                Button(
-                                    onClick = {
-                                        timerJob?.cancel()
-                                        timerCountdown = null
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                                ) {
-                                    Text("Cancel", color = Color.White)
+    if (isLandscape) {
+        Row(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            ) {
+                CameraViewfinder(
+                    Modifier
+                        .align(Alignment.Center)
+                        .fillMaxHeight()
+                        .aspectRatio(activeNativeRatio),
+                )
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.78f),
+                    shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .align(Alignment.TopCenter),
+                ) {
+                    TopBarContent(isLandscape = true)
+                }
+
+                GeofenceSection(isLandscape = true)
+
+                if (showProBar) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(top = if (showToolsBar) 94.dp else 52.dp),
+                    ) {
+                        InfoBar(
+                            mode = mode, manual = manual, readout = readout, cam = cam, sensor = sensor,
+                            formatText = formatText, open = openPanel, enabled = true,
+                            onOpen = { p ->
+                                if (isRecording && (p == Panel.FPS || p == Panel.FORMAT)) {
+                                    Toast.makeText(context, "Stop recording to change this", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    openPanel = p
                                 }
-                            }
-                        }
-                    }
-
-                    if (busy) {
-                        Column(
-                            Modifier
-                                .align(Alignment.Center)
-                                .background(Color(0xAA000000), RoundedCornerShape(12.dp))
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            CircularProgressIndicator(color = Color.White)
-                            Spacer(Modifier.height(8.dp))
-                            Text(busyText, color = Color.White)
-                        }
-                    }
-                    error?.let {
-                        Text(
-                            it, color = Color.White,
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .background(Color(0xCCB71C1C), RoundedCornerShape(8.dp))
-                                .padding(12.dp),
+                            },
                         )
                     }
                 }
 
-                // Control panel slides over the bottom of the image, Blackmagic style.
                 openPanel?.let { p ->
                     val evRange = controller.camera?.cameraInfo?.exposureState?.let {
                         if (it.isExposureCompensationSupported) it.exposureCompensationRange.lower..it.exposureCompensationRange.upper else null
@@ -1601,425 +2107,65 @@ fun CameraScreen(
                 }
             }
 
-            // ---- Portrait Bottom Controls ----
-            if (!isLandscape) {
-                // Floating lens switcher or zoom presets capsule (unified)
-                if (lenses.size > 1) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                        modifier = Modifier
-                            .padding(vertical = 4.dp)
-                            .align(Alignment.CenterHorizontally),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 4.dp, vertical = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            lenses.forEachIndexed { i, lens ->
-                                val active = i == selected
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                    modifier = Modifier.clickable(enabled = !busy && !isRecording) { selected = i },
-                                ) {
-                                    Text(
-                                        text = lens.shortLabel,
-                                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else if (zoomMax > 1.01f && openPanel == null) {
-                    val presets = (listOf(zoomMin) + listOf(1f, 2f, 3f, 5f, 10f))
-                        .filter { it in zoomMin..zoomMax }
-                        .distinctBy { (it * 10).toInt() }
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        presets.forEach { z ->
-                            val active = kotlin.math.abs(zoomNow - z) < 0.05f
-                            Surface(
-                                shape = CircleShape,
-                                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
-                                border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                                modifier = Modifier
-                                    .padding(horizontal = 4.dp)
-                                    .clickable { controller.setZoomRatio(z) },
-                            ) {
-                                Text(
-                                    text = if (z < 1f) String.format(Locale.US, "%.1fx", z) else "${z.toInt()}x",
-                                    color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Capture mode selector (Material 3 segmented pill)
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.65f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            CaptureMode.entries.forEach { m ->
-                                val active = mode == m
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                    modifier = Modifier
-                                        .clickable(enabled = !busy && !isRecording) {
-                                            mode = m
-                                            openPanel = null
-                                        }
-                                        .padding(horizontal = 2.dp),
-                                ) {
-                                    Text(
-                                        text = m.name,
-                                        color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Shutter and Action Row
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    // Left: Thumbnail preview & quick share
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Box(
-                            Modifier
-                                .size(56.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .border(2.dp, Color(0x55FFFFFF), RoundedCornerShape(14.dp))
-                                .background(Color(0x33FFFFFF))
-                                .clickable(enabled = lastUri != null && !isRecording) {
-                                    lastUri?.let { uri ->
-                                        val intent = Intent(Intent.ACTION_VIEW)
-                                            .setDataAndType(uri, lastMime)
-                                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        runCatching { context.startActivity(intent) }
-                                    }
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val t = lastThumb
-                            if (t != null) {
-                                Image(t.asImageBitmap(), "Last capture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                            } else if (lastUri != null) {
-                                Text(if (lastMime.startsWith("video")) "VID" else "RAW", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                            }
-                        }
-                        if (lastUri != null && !isRecording && !isTimelapseActive) {
-                            IconButton(onClick = { shareLastToWhatsApp() }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Filled.Share, "Share via WhatsApp", tint = Color(0xFF25D366), modifier = Modifier.size(20.dp))
-                            }
-                            IconButton(onClick = { uploadLastToGoogleDrive() }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Filled.CloudUpload, "Upload to Google Drive", tint = Color(0xFF4285F4), modifier = Modifier.size(20.dp))
-                            }
-                        }
-                    }
-
-                    // Center: Dual-Ring Shutter Button + Snapshot button
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        ShutterButton(
-                            mode = mode,
-                            busy = busy,
-                            isRecording = isRecording,
-                            isTimelapseActive = isTimelapseActive,
-                            isReady = bind?.ok == true,
-                            attendanceMode = cam.attendanceMode,
-                            onPhotoClick = { shoot() },
-                            onVideoClick = { toggleRecording() },
-                            onTimelapseClick = { toggleTimelapse() },
-                        )
-                        if (isRecording) {
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0x55FFFFFF),
-                                border = BorderStroke(2.dp, Color.White),
-                                modifier = Modifier.size(48.dp),
-                            ) {
-                                IconButton(onClick = { takeVideoSnapshot() }, enabled = !busy, modifier = Modifier.fillMaxSize()) {
-                                    Icon(Icons.Filled.CameraAlt, contentDescription = "Take Snapshot", tint = Color.White, modifier = Modifier.size(24.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    // Right: Camera Switch (Flip) & Timer/Burst chips
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        if (mode == CaptureMode.PHOTO) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                QuickChip(
-                                    if (cam.timerSeconds > 0) "⏱${cam.timerSeconds}s" else "⏱Off",
-                                    cam.timerSeconds > 0,
-                                    !isRecording && !busy,
-                                ) {
-                                    cam.timerSeconds = when (cam.timerSeconds) {
-                                        0 -> 3
-                                        3 -> 5
-                                        5 -> 10
-                                        else -> 0
-                                    }
-                                }
-                                Spacer(Modifier.height(4.dp))
-                                QuickChip(
-                                    "💥${cam.burstCount}x",
-                                    cam.burstCount > 1,
-                                    !isRecording && !busy,
-                                ) {
-                                    cam.burstCount = when (cam.burstCount) {
-                                        1 -> 3
-                                        3 -> 5
-                                        else -> 1
-                                    }
-                                }
-                            }
-                        } else if (mode == CaptureMode.TIMELAPSE) {
-                            QuickChip("⏱ ${cam.timelapseIntervalSec}s", true, !isTimelapseActive) {
-                                cam.timelapseIntervalSec = when (cam.timelapseIntervalSec) {
-                                    1 -> 2
-                                    2 -> 5
-                                    5 -> 10
-                                    10 -> 30
-                                    else -> 1
-                                }
-                            }
-                        } else if (mode == CaptureMode.SLOW_MO) {
-                            QuickChip("⚡ ${cam.slowMoSpeed.label}", true, !isRecording) {
-                                cam.slowMoSpeed = when (cam.slowMoSpeed) {
-                                    SlowMoSpeed.X2 -> SlowMoSpeed.X4
-                                    SlowMoSpeed.X4 -> SlowMoSpeed.X8
-                                    SlowMoSpeed.X8 -> SlowMoSpeed.X2
-                                }
-                            }
-                        }
-
-                        // Dedicated Flip Camera Button
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                            modifier = Modifier.size(52.dp),
-                        ) {
-                            IconButton(
-                                onClick = { flipCamera() },
-                                enabled = !busy && !isRecording && lenses.size > 1,
-                                modifier = Modifier.fillMaxSize(),
-                            ) {
-                                Icon(
-                                    Icons.Filled.Cameraswitch,
-                                    contentDescription = "Flip Camera",
-                                    tint = if (lenses.size > 1) Color.White else Color.White.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(26.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            LandscapeRightDeck()
         }
-
-        // ---- Landscape Right Deck (Ergonomic thumb shooting deck) ----
-        if (isLandscape) {
-            Column(
-                Modifier
-                    .width(120.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.92f))
-                    .navigationBarsPadding()
-                    .padding(vertical = 10.dp, horizontal = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween,
+    } else {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.82f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding(),
             ) {
-                // Top: Compact mode selector
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    CaptureMode.entries.forEach { m ->
-                        val active = mode == m
-                        Surface(
-                            shape = CircleShape,
-                            color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            modifier = Modifier
-                                .clickable(enabled = !busy && !isRecording) {
-                                    mode = m
-                                    openPanel = null
-                                }
-                                .padding(vertical = 1.dp),
-                        ) {
-                            Text(
-                                text = m.name,
-                                color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
+                TopBarContent(isLandscape = false)
+            }
+
+            GeofenceSection(isLandscape = false)
+
+            if (showProBar) {
+                InfoBar(
+                    mode = mode, manual = manual, readout = readout, cam = cam, sensor = sensor,
+                    formatText = formatText, open = openPanel, enabled = true,
+                    onOpen = { p ->
+                        if (isRecording && (p == Panel.FPS || p == Panel.FORMAT)) {
+                            Toast.makeText(context, "Stop recording to change this", Toast.LENGTH_SHORT).show()
+                        } else {
+                            openPanel = p
                         }
+                    },
+                )
+            }
+
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) {
+                CameraViewfinder(
+                    Modifier
+                        .align(Alignment.Center)
+                        .aspectRatio(activeNativeRatio),
+                )
+
+                openPanel?.let { p ->
+                    val evRange = controller.camera?.cameraInfo?.exposureState?.let {
+                        if (it.isExposureCompensationSupported) it.exposureCompensationRange.lower..it.exposureCompensationRange.upper else null
                     }
-                }
-
-                // Center: Lens switcher capsule + Shutter button
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (lenses.isNotEmpty()) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                lenses.forEachIndexed { i, lens ->
-                                    val active = i == selected
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                        modifier = Modifier.clickable(enabled = !busy && !isRecording) { selected = i },
-                                    ) {
-                                        Text(
-                                            text = lens.shortLabel,
-                                            color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    ShutterButton(
-                        mode = mode,
-                        busy = busy,
-                        isRecording = isRecording,
-                        isTimelapseActive = isTimelapseActive,
-                        isReady = bind?.ok == true,
-                        attendanceMode = cam.attendanceMode,
-                        onPhotoClick = { shoot() },
-                        onVideoClick = { toggleRecording() },
-                        onTimelapseClick = { toggleTimelapse() },
-                    )
-
-                    if (isRecording) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0x55FFFFFF),
-                            border = BorderStroke(2.dp, Color.White),
-                            modifier = Modifier.size(44.dp),
-                        ) {
-                            IconButton(onClick = { takeVideoSnapshot() }, enabled = !busy, modifier = Modifier.fillMaxSize()) {
-                                Icon(Icons.Filled.CameraAlt, contentDescription = "Take Snapshot", tint = Color.White, modifier = Modifier.size(20.dp))
-                            }
-                        }
-                    }
-                }
-
-                // Bottom: Thumbnail & Flip Camera
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .border(1.5.dp, Color(0x55FFFFFF), RoundedCornerShape(10.dp))
-                            .background(Color(0x33FFFFFF))
-                            .clickable(enabled = lastUri != null && !isRecording) {
-                                lastUri?.let { uri ->
-                                    val intent = Intent(Intent.ACTION_VIEW)
-                                        .setDataAndType(uri, lastMime)
-                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    runCatching { context.startActivity(intent) }
-                                }
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        val t = lastThumb
-                        if (t != null) {
-                            Image(t.asImageBitmap(), "Last capture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                        } else if (lastUri != null) {
-                            Text(if (lastMime.startsWith("video")) "VID" else "RAW", color = Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                        }
-                    }
-
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                        modifier = Modifier.size(46.dp),
-                    ) {
-                        IconButton(
-                            onClick = { flipCamera() },
-                            enabled = !busy && !isRecording && lenses.size > 1,
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            Icon(
-                                Icons.Filled.Cameraswitch,
-                                contentDescription = "Flip Camera",
-                                tint = if (lenses.size > 1) Color.White else Color.White.copy(alpha = 0.4f),
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
+                    Box(Modifier.align(Alignment.BottomCenter)) {
+                        ControlPanel(
+                            panel = p, mode = mode, manual = manual, readout = readout, sensor = sensor, caps = caps, cam = cam,
+                            evRange = evRange,
+                            photoSizes = if (cam.photoAspect.native16x9) sensor.photoSizes169 else sensor.photoSizes43,
+                        )
                     }
                 }
             }
+
+            PortraitBottomDeck()
         }
     }
 }
@@ -2040,7 +2186,7 @@ private fun ShutterButton(
         CaptureMode.PHOTO -> Color.White
         CaptureMode.VIDEO -> Color(0xFFE53935)
         CaptureMode.SLOW_MO -> Color(0xFF00E5FF)
-        CaptureMode.TIMELAPSE -> Accent
+        CaptureMode.TIMELAPSE -> MaterialTheme.colorScheme.primary
     }
 
     when (mode) {
@@ -2074,7 +2220,7 @@ private fun ShutterButton(
                     Modifier
                         .size(if (isTimelapseActive) 28.dp else 56.dp)
                         .clip(if (isTimelapseActive) RoundedCornerShape(6.dp) else CircleShape)
-                        .background(Accent),
+                        .background(MaterialTheme.colorScheme.primary),
                 )
             }
         }
