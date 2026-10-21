@@ -12,8 +12,8 @@ android {
         applicationId = "com.geostamp.camera"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.1"
     }
 
     // A permanent release key can be supplied through environment variables (see README:
