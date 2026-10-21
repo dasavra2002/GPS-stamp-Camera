@@ -61,13 +61,18 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.platform.LocalConfiguration
 import com.geostamp.camera.data.GridType
 import com.geostamp.camera.data.WatermarkStyle
@@ -200,6 +205,8 @@ fun CameraScreen(
     var overlay by remember { mutableStateOf<Bitmap?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var openPanel by remember { mutableStateOf<Panel?>(null) }
+    var showProBar by remember { mutableStateOf(false) }
+    var showToolsBar by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf<Recording?>(null) }
     var recSeconds by remember { mutableLongStateOf(0L) }
     var isTimelapseActive by remember { mutableStateOf(false) }
@@ -992,13 +999,15 @@ fun CameraScreen(
                 .weight(1f)
                 .fillMaxHeight(),
         ) {
-            // ---- Top Bar (Material 3 Two-Tier Header) ----
+            // ---- Top Bar (Material 3 Header) ----
             Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.90f),
-                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.82f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding(),
             ) {
                 Column(Modifier.fillMaxWidth()) {
-                    // Tier 1: Fixed primary action bar (guaranteed settings visibility & prominence)
+                    // Tier 1: Fixed primary action bar with guaranteed settings visibility
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -1047,12 +1056,15 @@ fun CameraScreen(
                             }
                         }
 
-                        // Center: GPS Status Pill
+                        // Center: GPS Status Pill (tap to refresh)
                         Surface(
                             shape = CircleShape,
                             color = if (data.latitude != null) MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                             border = BorderStroke(1.dp, if (data.latitude != null) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f) else Color.Transparent),
-                            modifier = Modifier.clickable { repo.refreshAll() },
+                            modifier = Modifier.clickable {
+                                repo.refreshAll()
+                                Toast.makeText(context, "GPS location updated", Toast.LENGTH_SHORT).show()
+                            },
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1070,22 +1082,48 @@ fun CameraScreen(
                                     color = if (data.latitude != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.SemiBold,
-                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
                                 )
                             }
                         }
 
-                        // Right controls: Refresh, Gallery, Elevated Settings Button
+                        // Right controls: PRO toggle, TOOLS toggle, and ALWAYS VISIBLE Settings Button
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            IconButton(onClick = { repo.refreshAll() }, modifier = Modifier.size(38.dp)) {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Refresh GPS", tint = Color.White)
+                            // Pro manual toggle pill
+                            Surface(
+                                shape = CircleShape,
+                                color = if (showProBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f),
+                                border = BorderStroke(1.dp, if (showProBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                                modifier = Modifier.clickable {
+                                    showProBar = !showProBar
+                                    if (!showProBar) openPanel = null
+                                },
+                            ) {
+                                Text(
+                                    "PRO",
+                                    color = if (showProBar) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
                             }
-                            IconButton(onClick = onOpenGallery, enabled = !isRecording, modifier = Modifier.size(38.dp)) {
-                                Icon(Icons.Filled.PhotoLibrary, contentDescription = "Gallery", tint = Color.White)
+
+                            // Quick tools toggle button
+                            IconButton(
+                                onClick = { showToolsBar = !showToolsBar },
+                                modifier = Modifier.size(38.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.Tune,
+                                    contentDescription = "Quick Tools",
+                                    tint = if (showToolsBar) MaterialTheme.colorScheme.primary else Color.White,
+                                )
                             }
+
+                            // Prominent, guaranteed Material 3 Settings Button
                             Surface(
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.primaryContainer,
@@ -1109,64 +1147,66 @@ fun CameraScreen(
                         }
                     }
 
-                    // Tier 2: Horizontally scrollable quick-controls strip
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        val hdrSupported = if (mode == CaptureMode.PHOTO) caps.hdrPhoto else caps.videoColors.size > 1
-                        val hdrOn = bind?.hdrLabel != null
-                        QuickChip("HDR", hdrOn, hdrSupported && !isRecording) {
-                            if (mode == CaptureMode.PHOTO) cam.hdrPhoto = !cam.hdrPhoto
-                            else cam.videoColor = if (cam.videoColor != VideoColor.SDR) VideoColor.SDR
-                            else caps.videoColors.firstOrNull { it != VideoColor.SDR } ?: VideoColor.SDR
-                        }
-                        if (mode == CaptureMode.PHOTO) {
-                            QuickChip("RAW", bind?.format != null && bind?.format != PhotoFormat.JPEG, caps.anyRaw) {
-                                cam.photoFormat = if (cam.photoFormat == PhotoFormat.JPEG) {
-                                    if (caps.rawJpeg) PhotoFormat.RAW_JPEG else PhotoFormat.RAW
-                                } else PhotoFormat.JPEG
+                    // Tier 2: Horizontally scrollable quick-controls strip (shown when showToolsBar is ON)
+                    if (showToolsBar) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            val hdrSupported = if (mode == CaptureMode.PHOTO) caps.hdrPhoto else caps.videoColors.size > 1
+                            val hdrOn = bind?.hdrLabel != null
+                            QuickChip("HDR", hdrOn, hdrSupported && !isRecording) {
+                                if (mode == CaptureMode.PHOTO) cam.hdrPhoto = !cam.hdrPhoto
+                                else cam.videoColor = if (cam.videoColor != VideoColor.SDR) VideoColor.SDR
+                                else caps.videoColors.firstOrNull { it != VideoColor.SDR } ?: VideoColor.SDR
                             }
-                            if (caps.nightExtension) {
-                                QuickChip("🌙 Night", cam.photoExtension == ExtensionModeType.NIGHT, !isRecording) {
-                                    cam.photoExtension = if (cam.photoExtension == ExtensionModeType.NIGHT) ExtensionModeType.NONE else ExtensionModeType.NIGHT
+                            if (mode == CaptureMode.PHOTO) {
+                                QuickChip("RAW", bind?.format != null && bind?.format != PhotoFormat.JPEG, caps.anyRaw) {
+                                    cam.photoFormat = if (cam.photoFormat == PhotoFormat.JPEG) {
+                                        if (caps.rawJpeg) PhotoFormat.RAW_JPEG else PhotoFormat.RAW
+                                    } else PhotoFormat.JPEG
+                                }
+                                if (caps.nightExtension) {
+                                    QuickChip("🌙 Night", cam.photoExtension == ExtensionModeType.NIGHT, !isRecording) {
+                                        cam.photoExtension = if (cam.photoExtension == ExtensionModeType.NIGHT) ExtensionModeType.NONE else ExtensionModeType.NIGHT
+                                    }
+                                }
+                                if (caps.bokehExtension) {
+                                    QuickChip("👤 Portrait", cam.photoExtension == ExtensionModeType.BOKEH, !isRecording) {
+                                        cam.photoExtension = if (cam.photoExtension == ExtensionModeType.BOKEH) ExtensionModeType.NONE else ExtensionModeType.BOKEH
+                                    }
+                                }
+                                QuickChip("Punch In", cam.attendanceMode, !isRecording) {
+                                    toggleAttendanceMode()
+                                }
+                                QuickChip("PiP", cam.pipMode, lenses.size > 1 && !isRecording) {
+                                    cam.pipMode = !cam.pipMode
+                                }
+                                QuickChip("DOC", cam.documentMode, !isRecording) {
+                                    cam.documentMode = !cam.documentMode
                                 }
                             }
-                            if (caps.bokehExtension) {
-                                QuickChip("👤 Portrait", cam.photoExtension == ExtensionModeType.BOKEH, !isRecording) {
-                                    cam.photoExtension = if (cam.photoExtension == ExtensionModeType.BOKEH) ExtensionModeType.NONE else ExtensionModeType.BOKEH
+                            if (!mode.isVideo) {
+                                QuickChip("🎙 Voice", false, !isRecording && !busy) {
+                                    startVoiceNote()
                                 }
-                            }
-                            QuickChip("Punch In", cam.attendanceMode, !isRecording) {
-                                toggleAttendanceMode()
-                            }
-                            QuickChip("PiP", cam.pipMode, lenses.size > 1 && !isRecording) {
-                                cam.pipMode = !cam.pipMode
-                            }
-                            QuickChip("DOC", cam.documentMode, !isRecording) {
-                                cam.documentMode = !cam.documentMode
-                            }
-                        }
-                        if (!mode.isVideo) {
-                            QuickChip("🎙 Voice", false, !isRecording && !busy) {
-                                startVoiceNote()
-                            }
-                            QuickChip("🔲 QR", false, !isRecording && !busy) {
-                                scanBarcode()
-                            }
-                            QuickChip("📄 OCR", false, !isRecording && !busy) {
-                                scanSignboardText()
-                            }
-                            QuickChip("✨ AI Caption", false, !isRecording && !busy) {
-                                autoCaptionScene()
-                            }
-                            if (lastThumb != null) {
-                                QuickChip("👻 Ghost", showGhostOverlay, true) {
-                                    showGhostOverlay = !showGhostOverlay
+                                QuickChip("🔲 QR", false, !isRecording && !busy) {
+                                    scanBarcode()
+                                }
+                                QuickChip("📄 OCR", false, !isRecording && !busy) {
+                                    scanSignboardText()
+                                }
+                                QuickChip("✨ AI Caption", false, !isRecording && !busy) {
+                                    autoCaptionScene()
+                                }
+                                if (lastThumb != null) {
+                                    QuickChip("👻 Ghost", showGhostOverlay, true) {
+                                        showGhostOverlay = !showGhostOverlay
+                                    }
                                 }
                             }
                         }
@@ -1273,18 +1313,20 @@ fun CameraScreen(
                 }
             }
 
-            // ---- Blackmagic-style info bar ----
-            InfoBar(
-                mode = mode, manual = manual, readout = readout, cam = cam, sensor = sensor,
-                formatText = formatText, open = openPanel, enabled = true,
-                onOpen = { p ->
-                    if (isRecording && (p == Panel.FPS || p == Panel.FORMAT)) {
-                        Toast.makeText(context, "Stop recording to change this", Toast.LENGTH_SHORT).show()
-                    } else {
-                        openPanel = p
-                    }
-                },
-            )
+            // ---- Pro Manual Camera Info Bar ----
+            if (showProBar) {
+                InfoBar(
+                    mode = mode, manual = manual, readout = readout, cam = cam, sensor = sensor,
+                    formatText = formatText, open = openPanel, enabled = true,
+                    onOpen = { p ->
+                        if (isRecording && (p == Panel.FPS || p == Panel.FORMAT)) {
+                            Toast.makeText(context, "Stop recording to change this", Toast.LENGTH_SHORT).show()
+                        } else {
+                            openPanel = p
+                        }
+                    },
+                )
+            }
 
             // ---- preview with overlays ----
             Box(
@@ -1561,41 +1603,8 @@ fun CameraScreen(
 
             // ---- Portrait Bottom Controls ----
             if (!isLandscape) {
-                // Zoom presets
-                if (zoomMax > 1.01f && openPanel == null) {
-                    val presets = (listOf(zoomMin) + listOf(1f, 2f, 3f, 5f, 10f))
-                        .filter { it in zoomMin..zoomMax }
-                        .distinctBy { (it * 10).toInt() }
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        presets.forEach { z ->
-                            val active = kotlin.math.abs(zoomNow - z) < 0.05f
-                            Surface(
-                                shape = CircleShape,
-                                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
-                                border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                                modifier = Modifier
-                                    .padding(horizontal = 4.dp)
-                                    .clickable { controller.setZoomRatio(z) },
-                            ) {
-                                Text(
-                                    text = if (z < 1f) String.format(Locale.US, "%.1fx", z) else "${z.toInt()}x",
-                                    color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Floating lens switcher capsule
-                if (lenses.isNotEmpty()) {
+                // Floating lens switcher or zoom presets capsule (unified)
+                if (lenses.size > 1) {
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
@@ -1629,35 +1638,77 @@ fun CameraScreen(
                             }
                         }
                     }
+                } else if (zoomMax > 1.01f && openPanel == null) {
+                    val presets = (listOf(zoomMin) + listOf(1f, 2f, 3f, 5f, 10f))
+                        .filter { it in zoomMin..zoomMax }
+                        .distinctBy { (it * 10).toInt() }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        presets.forEach { z ->
+                            val active = kotlin.math.abs(zoomNow - z) < 0.05f
+                            Surface(
+                                shape = CircleShape,
+                                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                                border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                                modifier = Modifier
+                                    .padding(horizontal = 4.dp)
+                                    .clickable { controller.setZoomRatio(z) },
+                            ) {
+                                Text(
+                                    text = if (z < 1f) String.format(Locale.US, "%.1fx", z) else "${z.toInt()}x",
+                                    color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                        }
+                    }
                 }
 
-                // Capture mode selector
+                // Capture mode selector (Material 3 segmented pill)
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 2.dp),
+                        .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CaptureMode.entries.forEach { m ->
-                        val active = mode == m
-                        Surface(
-                            shape = CircleShape,
-                            color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            modifier = Modifier
-                                .clickable(enabled = !busy && !isRecording) {
-                                    mode = m
-                                    openPanel = null
-                                }
-                                .padding(horizontal = 3.dp),
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.65f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                text = m.name,
-                                color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            )
+                            CaptureMode.entries.forEach { m ->
+                                val active = mode == m
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                    modifier = Modifier
+                                        .clickable(enabled = !busy && !isRecording) {
+                                            mode = m
+                                            openPanel = null
+                                        }
+                                        .padding(horizontal = 2.dp),
+                                ) {
+                                    Text(
+                                        text = m.name,
+                                        color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1666,6 +1717,7 @@ fun CameraScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .navigationBarsPadding()
                         .padding(horizontal = 20.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1819,9 +1871,10 @@ fun CameraScreen(
         if (isLandscape) {
             Column(
                 Modifier
-                    .width(116.dp)
+                    .width(120.dp)
                     .fillMaxHeight()
-                    .background(Color(0xEE121212))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.92f))
+                    .navigationBarsPadding()
                     .padding(vertical = 10.dp, horizontal = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween,
@@ -2067,20 +2120,20 @@ private fun ShutterButton(
 @Composable
 private fun QuickChip(text: String, on: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Surface(
-        shape = MaterialTheme.shapes.small,
+        shape = CircleShape,
         color = when {
             !enabled -> MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.38f)
             on -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f)
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f)
         },
         border = BorderStroke(
             1.dp,
             if (on && enabled) MaterialTheme.colorScheme.primary
-            else if (enabled) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            else if (enabled) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
             else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
         ),
         modifier = Modifier
-            .padding(horizontal = 3.dp)
+            .padding(horizontal = 2.dp)
             .clickable(enabled = enabled, onClick = onClick),
     ) {
         Text(
@@ -2091,9 +2144,8 @@ private fun QuickChip(text: String, on: Boolean, enabled: Boolean, onClick: () -
                 else -> MaterialTheme.colorScheme.onSurface
             },
             style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
         )
     }
 }

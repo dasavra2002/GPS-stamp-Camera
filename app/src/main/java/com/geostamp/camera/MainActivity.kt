@@ -10,6 +10,7 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -85,6 +86,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         currentIntent.value = intent
         if (CrashReporter.showIfCrashed(this) { showApp() }) return
         showApp()
@@ -114,11 +116,12 @@ class MainActivity : ComponentActivity() {
 
     private fun showApp() {
         setContent {
-            GeoStampTheme {
+            GeoStampTheme(
+                darkTheme = true,
+                dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+            ) {
                 Surface(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .safeDrawingPadding(),
+                    modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     App(volumeKeyTrigger = volumeKeyTrigger, currentIntent = currentIntent)

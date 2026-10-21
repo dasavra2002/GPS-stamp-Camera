@@ -80,7 +80,7 @@ val LightColorScheme = lightColorScheme(
 @Composable
 fun GeoStampTheme(
     darkTheme: Boolean = true, // Pro camera UI defaults to dark for preview contrast & battery efficiency
-    dynamicColor: Boolean = false, // Keep signature pro brand colors by default
+    dynamicColor: Boolean = true, // Follow system Material You / dynamic wallpaper colors on Android 12+
     content: @Composable () -> Unit,
 ) {
     val colorScheme = when {
