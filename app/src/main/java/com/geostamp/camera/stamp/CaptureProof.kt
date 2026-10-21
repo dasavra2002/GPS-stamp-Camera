@@ -34,9 +34,13 @@ data class ProofPayload(
     val accuracyM: Float?,
     val time: String,
     val number: Int,
-    /** Where the location came from: "gps", "bluetooth", "photo-exif", "manual", ... */
+    /** Where the location came from: "phone-gps", "bluetooth-gnss:rtk-fixed", "gallery-exif", ... */
     val locationSource: String,
     val imageSha256: String,
+    /** Seconds between the location fix and saving the photo (v2+). */
+    val fixAgeS: Long? = null,
+    /** Location came from a mock-location app (v2+). */
+    val mock: Boolean? = null,
 ) {
     /** Exact bytes that are signed. Field order and number formatting are fixed. */
     fun canonical(): String = buildString {
@@ -49,6 +53,10 @@ data class ProofPayload(
         append("number=").append(number).append('\n')
         append("source=").append(locationSource).append('\n')
         append("image=").append(imageSha256)
+        if (version >= 2) {
+            append('\n').append("fixAge=").append(fixAgeS?.toString() ?: "")
+            append('\n').append("mock=").append(mock?.toString() ?: "")
+        }
     }
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -61,10 +69,12 @@ data class ProofPayload(
         put("number", number)
         put("source", locationSource)
         put("image", imageSha256)
+        fixAgeS?.let { put("fixAge", it) }
+        mock?.let { put("mock", it) }
     }
 
     companion object {
-        const val VERSION = 1
+        const val VERSION = 2
 
         fun fromJson(o: JSONObject) = ProofPayload(
             version = o.getInt("v"),
@@ -76,6 +86,8 @@ data class ProofPayload(
             number = o.getInt("number"),
             locationSource = o.getString("source"),
             imageSha256 = o.getString("image"),
+            fixAgeS = if (o.has("fixAge")) o.getLong("fixAge") else null,
+            mock = if (o.has("mock")) o.getBoolean("mock") else null,
         )
 
         fun timeString(time: ZonedDateTime): String = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(time)
@@ -139,7 +151,7 @@ data class ProofCheck(
     val verifiedBoot: Boolean?,
     val payload: ProofPayload,
 ) {
-    val authentic: Boolean get() = signatureValid && imageUnchanged && keyTrust == KeyTrust.HARDWARE_THIS_APP
+    val authentic: Boolean get() = signatureValid && imageUnchanged && keyTrust == KeyTrust.HARDWARE_THIS_APP && payload.mock != true
 }
 
 object CaptureProof {

@@ -311,6 +311,8 @@ object PhotoSaver {
                     number = number,
                     locationSource = locationSource,
                     imageSha256 = hash,
+                    fixAgeS = data.fixElapsedMs?.let { (android.os.SystemClock.elapsedRealtime() - it) / 1000 },
+                    mock = data.isMock,
                 ),
             )
         }

@@ -10,6 +10,10 @@ data class StampData(
     val accuracyM: Float? = null,
     /** Where the coordinates came from, recorded in the photo's signed proof. */
     val locationSource: String? = null,
+    /** True if the fix came from a mock-location app, null if unknown. */
+    val isMock: Boolean? = null,
+    /** SystemClock.elapsedRealtime() when the fix was measured, null if unknown. */
+    val fixElapsedMs: Long? = null,
     val title: String? = null,
     val countryCode: String? = null,
     val shortAddress: String? = null,

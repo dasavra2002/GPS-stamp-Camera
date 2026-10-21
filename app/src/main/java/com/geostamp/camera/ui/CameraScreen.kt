@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.util.Size
 import android.view.MotionEvent
 import android.view.OrientationEventListener
@@ -93,6 +94,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -138,6 +140,8 @@ import com.geostamp.camera.data.VolumeButtonAction
 import com.geostamp.camera.data.StampTemplate
 import com.geostamp.camera.data.VideoColor
 import com.geostamp.camera.data.VideoRes
+import com.geostamp.camera.location.FixCheck
+import com.geostamp.camera.location.FixIssue
 import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.PhotoSaver
 import com.geostamp.camera.stamp.ShotParams
@@ -171,6 +175,15 @@ fun CameraScreen(
     val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val data by repo.data.collectAsState()
+    // Ticks once a second so the GPS pill can show a fix getting old.
+    val nowMs by produceState(SystemClock.elapsedRealtime()) {
+        while (true) {
+            delay(1000)
+            value = SystemClock.elapsedRealtime()
+        }
+    }
+    val fixAgeMs = data.fixElapsedMs?.let { nowMs - it }
+    val fixIssues = FixCheck.issues(data.latitude != null, fixAgeMs, data.accuracyM, data.isMock)
     val readout by controller.readout.collectAsState()
     val histogram by controller.histogram.collectAsState()
     val focusPeakingBmp by controller.focusPeakingBitmap.collectAsState()
@@ -396,8 +409,11 @@ fun CameraScreen(
     }
 
     fun warnIfNoGps() {
-        if (repo.data.value.latitude == null) {
-            Toast.makeText(context, "No GPS fix yet – location fields will be blank", Toast.LENGTH_SHORT).show()
+        val d = repo.data.value
+        val age = d.fixElapsedMs?.let { SystemClock.elapsedRealtime() - it }
+        val issues = FixCheck.issues(d.latitude != null, age, d.accuracyM, d.isMock)
+        FixCheck.warning(issues, age, d.accuracyM)?.let {
+            Toast.makeText(context, it, if (FixIssue.NO_FIX in issues) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
         }
     }
 
@@ -1073,10 +1089,22 @@ fun CameraScreen(
                                 Modifier
                                     .size(7.dp)
                                     .clip(CircleShape)
-                                    .background(if (data.latitude != null) Color(0xFF4CAF50) else Color(0xFFFFB300))
+                                    .background(
+                                        when {
+                                            FixIssue.MOCK in fixIssues -> Color(0xFFE53935)
+                                            fixIssues.isNotEmpty() -> Color(0xFFFFB300)
+                                            else -> Color(0xFF4CAF50)
+                                        },
+                                    )
                             )
                             Text(
-                                text = if (data.latitude != null) String.format(Locale.US, "GPS ±%.0fm", data.accuracyM ?: 0f) else "GPS Searching…",
+                                text = when {
+                                    data.latitude == null -> "GPS Searching…"
+                                    FixIssue.MOCK in fixIssues -> "FAKE GPS"
+                                    FixIssue.STALE in fixIssues && fixAgeMs != null ->
+                                        String.format(Locale.US, "GPS ±%.0fm · %s old", data.accuracyM ?: 0f, FixCheck.formatAge(fixAgeMs))
+                                    else -> String.format(Locale.US, "GPS ±%.0fm", data.accuracyM ?: 0f)
+                                },
                                 color = if (data.latitude != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
