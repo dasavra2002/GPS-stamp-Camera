@@ -166,122 +166,105 @@ object FrameWatermarkRenderer {
             val r2Y = centerY
             val r3Y = centerY + lineSpacing * 0.85f
 
-            // Row 1 Left: Brand & Badge + Project Name
+            // ---- Row 1: Brand & Badge + Project/Number (Left) | EXIF specs (Right) ----
+            val exifStr = if (config.showExifParams) shot.formatExifSummary("  ") else ""
+            val exifPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = textColor
+                textSize = barH * 0.13f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.RIGHT
+            }
             val workLine = buildWorkAndProjectLine(config, cameraLabel)
+            val workPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = subColor
+                textSize = barH * 0.11f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+
             if (!hasYellowBlock) {
-                drawBrandWithBadge(canvas, startX, r1Y, brand, badge, textColor, textColor, barH * 0.17f)
-                if (workLine.isNotBlank()) {
-                    val workPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = subColor
-                        textSize = barH * 0.11f
-                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                    }
-                    val brandW = estimateBrandBadgeWidth(brand, badge, barH * 0.17f)
-                    canvas.drawText("  ·  $workLine", startX + brandW, r1Y, workPaint)
-                }
-            } else if (workLine.isNotBlank()) {
-                val workPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = textColor
-                    textSize = barH * 0.12f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                }
-                canvas.drawText(workLine, startX, r1Y, workPaint)
+                drawBrandWithBadge(canvas, startX, r1Y, brand, badge, textColor, textColor, barH * 0.16f)
+                val brandW = estimateBrandBadgeWidth(brand, badge, barH * 0.16f)
+                val row1LeftX = startX + brandW + padX * 0.3f
+                drawLeftRightText(canvas, r1Y, row1LeftX, rightEdgeX, if (workLine.isNotBlank()) "·  $workLine" else "", workPaint, exifStr, exifPaint, padX * 0.4f)
+            } else {
+                drawLeftRightText(canvas, r1Y, startX, rightEdgeX, workLine, workPaint, exifStr, exifPaint, padX * 0.4f)
             }
 
-            // Row 1 Right: EXIF specs
-            if (config.showExifParams) {
-                val exifPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = textColor
-                    textSize = barH * 0.14f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    textAlign = Paint.Align.RIGHT
-                }
-                canvas.drawText(shot.formatExifSummary("  "), rightEdgeX, r1Y, exifPaint)
-            }
-
-            // Row 2 Left: Address & Locality
+            // ---- Row 2: Address / Locality (Left) | Date & Time (Right) ----
             val addrStr = buildAddressLine(data, config)
             val addrPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = subColor
+                color = textColor
                 textSize = barH * 0.115f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             }
-            canvas.drawText(addrStr.ifBlank { "Location —" }, startX, r2Y, addrPaint)
-
-            // Row 2 Right: Date & Time + GPS
             val dtStr = formatDateTime(time, config)
-            val gpsStr = buildGpsAndLocationLine(data, config)
-            val r2RightStr = if (gpsStr.isNotBlank() && config.showGpsOnFrame) "$dtStr  ·  $gpsStr" else dtStr
-            val r2RightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            val dtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = subColor
                 textSize = barH * 0.115f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
                 textAlign = Paint.Align.RIGHT
             }
-            canvas.drawText(r2RightStr, rightEdgeX, r2Y, r2RightPaint)
+            drawLeftRightText(canvas, r2Y, startX, rightEdgeX, addrStr.ifBlank { "Location —" }, addrPaint, dtStr, dtPaint, padX * 0.4f)
 
-            // Row 3 Left: Notes / Custom Motto
-            val motto = config.note.ifBlank { config.customMotto }
-            val mottoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            // ---- Row 3: GPS Coordinates & Elevation (Left) | Weather & Sensors (Right) ----
+            val gpsCoords = buildGpsCoordinatesString(data, config)
+            val customNote = config.note.ifBlank { config.customMotto }
+            val row3Left = if (gpsCoords.isNotBlank() && config.showGpsOnFrame) {
+                if (customNote.isNotBlank() && customNote != "Captured by GeoStamp Camera") "$gpsCoords  ·  $customNote" else gpsCoords
+            } else {
+                customNote
+            }
+            val row3LeftPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = if (isDark) ACCENT_YELLOW else 0xFFB26A00.toInt()
                 textSize = barH * 0.105f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             }
-            canvas.drawText(motto.take(50), startX, r3Y, mottoPaint)
-
-            // Row 3 Right: Weather & Sensors
             val weatherStr = buildWeatherAndSensorsLine(data, config)
-            if (weatherStr.isNotBlank()) {
-                val weatherPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = textColor
-                    textSize = barH * 0.11f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                    textAlign = Paint.Align.RIGHT
-                }
-                canvas.drawText(weatherStr, rightEdgeX, r3Y, weatherPaint)
-            }
-
-        } else {
-            // Minimal Two-Row Layout
-            if (!hasYellowBlock) {
-                val titleY = centerY - barH * 0.08f
-                drawBrandWithBadge(canvas, startX, titleY, brand, badge, textColor, textColor, barH * 0.25f)
-                val dtStr = formatDateTime(time, config)
-                val locStr = buildLocationString(data, config)
-                val subLine = if (locStr.isNotBlank() && config.showGpsOnFrame) "$dtStr  ·  $locStr" else dtStr
-                val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = subColor
-                    textSize = barH * 0.16f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                }
-                canvas.drawText(subLine, startX, centerY + barH * 0.26f, subPaint)
-            }
-
-            val rightX = w - padX
-            val exifSummary = shot.formatExifSummary("  ")
-            val exifPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = textColor
-                textSize = barH * 0.22f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                textAlign = Paint.Align.RIGHT
-            }
-            val subRightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            val weatherPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = subColor
-                textSize = barH * 0.16f
+                textSize = barH * 0.105f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
                 textAlign = Paint.Align.RIGHT
             }
+            drawLeftRightText(canvas, r3Y, startX, rightEdgeX, row3Left, row3LeftPaint, weatherStr, weatherPaint, padX * 0.4f)
 
-            if (config.showExifParams) {
-                canvas.drawText(exifSummary, rightX, centerY - barH * 0.08f, exifPaint)
-                val rightDateStr = formatDateTimeShort(time)
-                val gpsStr = buildGpsCoordinatesString(data, config)
-                val line2 = if (gpsStr.isNotBlank() && config.showGpsOnFrame) "$rightDateStr  ·  $gpsStr" else rightDateStr
-                canvas.drawText(line2, rightX, centerY + barH * 0.26f, subRightPaint)
-            } else {
-                val rightDateStr = formatDateTime(time, config)
-                canvas.drawText(rightDateStr, rightX, centerY, exifPaint)
+        } else {
+            // Minimal Two-Row Layout
+            val titleY = centerY - barH * 0.10f
+            val subY = centerY + barH * 0.24f
+
+            val exifSummary = if (config.showExifParams) shot.formatExifSummary("  ") else ""
+            val exifPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = textColor
+                textSize = barH * 0.20f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.RIGHT
             }
+
+            if (!hasYellowBlock) {
+                drawBrandWithBadge(canvas, startX, titleY, brand, badge, textColor, textColor, barH * 0.22f)
+                val brandW = estimateBrandBadgeWidth(brand, badge, barH * 0.22f)
+                val row1LeftX = startX + brandW + padX * 0.3f
+                drawLeftRightText(canvas, titleY, row1LeftX, rightEdgeX, "", exifPaint, exifSummary, exifPaint, padX * 0.4f)
+            } else {
+                drawLeftRightText(canvas, titleY, startX, rightEdgeX, "", exifPaint, exifSummary, exifPaint, padX * 0.4f)
+            }
+
+            // Row 2: Date & Time (Left) | Coordinates (Right)
+            val dtStr = formatDateTime(time, config)
+            val dtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = subColor
+                textSize = barH * 0.15f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+            val gpsStr = if (config.showGpsOnFrame) buildGpsCoordinatesString(data, config) else ""
+            val gpsPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = subColor
+                textSize = barH * 0.15f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                textAlign = Paint.Align.RIGHT
+            }
+            drawLeftRightText(canvas, subY, startX, rightEdgeX, dtStr, dtPaint, gpsStr, gpsPaint, padX * 0.4f)
         }
 
         return out
@@ -355,90 +338,97 @@ object FrameWatermarkRenderer {
             val r2Y = centerY
             val r3Y = centerY + lineSpacing * 0.85f
 
-            drawBrandWithBadge(canvas, startX, r1Y, brand, badge, textColor, textColor, marginBottom * 0.16f)
-
-            if (config.showExifParams) {
-                val exifPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = textColor
-                    textSize = marginBottom * 0.13f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    textAlign = Paint.Align.RIGHT
-                }
-                canvas.drawText(shot.formatExifSummary("  "), rightEdgeX, r1Y, exifPaint)
+            // ---- Row 1: Brand & Badge + Project/Number (Left) | EXIF specs (Right) ----
+            val exifStr = if (config.showExifParams) shot.formatExifSummary("  ") else ""
+            val exifPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = textColor
+                textSize = marginBottom * 0.13f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.RIGHT
             }
-
-            val addrStr = buildAddressLine(data, config)
-            val addrPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            val workLine = buildWorkAndProjectLine(config, cameraLabel)
+            val workPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = subColor
                 textSize = marginBottom * 0.11f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             }
-            canvas.drawText(addrStr.ifBlank { "Location —" }, startX, r2Y, addrPaint)
 
+            drawBrandWithBadge(canvas, startX, r1Y, brand, badge, textColor, textColor, marginBottom * 0.16f)
+            val brandW = estimateBrandBadgeWidth(brand, badge, marginBottom * 0.16f)
+            val row1LeftX = startX + brandW + padX * 0.3f
+            drawLeftRightText(canvas, r1Y, row1LeftX, rightEdgeX, if (workLine.isNotBlank()) "·  $workLine" else "", workPaint, exifStr, exifPaint, padX * 0.4f)
+
+            // ---- Row 2: Address / Locality (Left) | Date & Time (Right) ----
+            val addrStr = buildAddressLine(data, config)
+            val addrPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = textColor
+                textSize = marginBottom * 0.115f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
             val dtStr = formatDateTime(time, config)
-            val gpsStr = buildGpsAndLocationLine(data, config)
-            val r2RightStr = if (gpsStr.isNotBlank() && config.showGpsOnFrame) "$dtStr  ·  $gpsStr" else dtStr
-            val r2RightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            val dtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = subColor
-                textSize = marginBottom * 0.11f
+                textSize = marginBottom * 0.115f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
                 textAlign = Paint.Align.RIGHT
             }
-            canvas.drawText(r2RightStr, rightEdgeX, r2Y, r2RightPaint)
+            drawLeftRightText(canvas, r2Y, startX, rightEdgeX, addrStr.ifBlank { "Location —" }, addrPaint, dtStr, dtPaint, padX * 0.4f)
 
-            val workLine = buildWorkAndProjectLine(config, cameraLabel)
-            val workPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            // ---- Row 3: GPS Coordinates & Elevation (Left) | Weather & Sensors (Right) ----
+            val gpsCoords = buildGpsCoordinatesString(data, config)
+            val customNote = config.note.ifBlank { config.customMotto }
+            val row3Left = if (gpsCoords.isNotBlank() && config.showGpsOnFrame) {
+                if (customNote.isNotBlank() && customNote != "Captured by GeoStamp Camera") "$gpsCoords  ·  $customNote" else gpsCoords
+            } else {
+                customNote
+            }
+            val row3LeftPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = if (textColor == Color.WHITE) ACCENT_YELLOW else 0xFFB26A00.toInt()
-                textSize = marginBottom * 0.10f
+                textSize = marginBottom * 0.105f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             }
-            canvas.drawText(workLine.take(50), startX, r3Y, workPaint)
-
             val weatherStr = buildWeatherAndSensorsLine(data, config)
-            if (weatherStr.isNotBlank()) {
-                val weatherPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = textColor
-                    textSize = marginBottom * 0.105f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                    textAlign = Paint.Align.RIGHT
-                }
-                canvas.drawText(weatherStr, rightEdgeX, r3Y, weatherPaint)
+            val weatherPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = subColor
+                textSize = marginBottom * 0.105f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                textAlign = Paint.Align.RIGHT
             }
+            drawLeftRightText(canvas, r3Y, startX, rightEdgeX, row3Left, row3LeftPaint, weatherStr, weatherPaint, padX * 0.4f)
 
         } else {
-            drawBrandWithBadge(canvas, startX, centerY - marginBottom * 0.08f, brand, badge, textColor, textColor, marginBottom * 0.24f)
-            val dtStr = formatDateTime(time, config)
-            val locStr = buildLocationString(data, config)
-            val leftSub = if (locStr.isNotBlank() && config.showGpsOnFrame) "$dtStr  ·  $locStr" else dtStr
-            val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = subColor
-                textSize = marginBottom * 0.15f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            }
-            canvas.drawText(leftSub, startX, centerY + marginBottom * 0.24f, subPaint)
+            // Minimal Two-Row Layout
+            val titleY = centerY - marginBottom * 0.10f
+            val subY = centerY + marginBottom * 0.24f
 
-            val rightX = outW - padX
-            val exifSummary = shot.formatExifSummary("  ")
+            val exifSummary = if (config.showExifParams) shot.formatExifSummary("  ") else ""
             val exifPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = textColor
                 textSize = marginBottom * 0.20f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textAlign = Paint.Align.RIGHT
             }
-            val subRightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+
+            drawBrandWithBadge(canvas, startX, titleY, brand, badge, textColor, textColor, marginBottom * 0.22f)
+            val brandW = estimateBrandBadgeWidth(brand, badge, marginBottom * 0.22f)
+            val row1LeftX = startX + brandW + padX * 0.3f
+            drawLeftRightText(canvas, titleY, row1LeftX, rightEdgeX, "", exifPaint, exifSummary, exifPaint, padX * 0.4f)
+
+            // Row 2: Date & Time (Left) | Coordinates (Right)
+            val dtStr = formatDateTime(time, config)
+            val dtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = subColor
+                textSize = marginBottom * 0.15f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+            val gpsStr = if (config.showGpsOnFrame) buildGpsCoordinatesString(data, config) else ""
+            val gpsPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = subColor
                 textSize = marginBottom * 0.15f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
                 textAlign = Paint.Align.RIGHT
             }
-
-            if (config.showExifParams) {
-                canvas.drawText(exifSummary, rightX, centerY - marginBottom * 0.08f, exifPaint)
-                val gpsStr = buildGpsCoordinatesString(data, config)
-                canvas.drawText(if (gpsStr.isNotBlank() && config.showGpsOnFrame) gpsStr else formatDateTimeShort(time), rightX, centerY + marginBottom * 0.24f, subRightPaint)
-            } else {
-                canvas.drawText(dtStr, rightX, centerY, exifPaint)
-            }
+            drawLeftRightText(canvas, subY, startX, rightEdgeX, dtStr, dtPaint, gpsStr, gpsPaint, padX * 0.4f)
         }
 
         return out
@@ -487,6 +477,9 @@ object FrameWatermarkRenderer {
         val brand = config.deviceBrand.ifBlank { "POCO X7" }
         val badge = config.deviceBadge.ifBlank { "Pro" }
 
+        val leftX = outW * 0.035f
+        val rightX = outW * 0.965f
+
         if (isFull) {
             // Top Margin text between sprockets and photo
             val topTextY = marginTop * 0.85f
@@ -498,46 +491,49 @@ object FrameWatermarkRenderer {
             val frameNo = "#%04d".format(config.number)
             val site = if (config.siteName.isNotBlank()) "  ·  SITE: ${config.siteName}" else ""
             val comp = data.azimuthDeg?.let { "  ·  🧭 %.0f° %s".format(Locale.US, it, WatermarkRenderer.direction(it)) } ?: ""
-            canvas.drawText("$frameNo$site$comp", outW * 0.035f, topTextY, topPaint)
-
+            val leftTopText = "$frameNo$site$comp"
             val rightTopText = formatDateTime(time, config)
-            topPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(rightTopText, outW * 0.965f, topTextY, topPaint)
+            drawLeftRightText(canvas, topTextY, leftX, rightX, leftTopText, topPaint, rightTopText, topPaint)
 
             // Bottom Area text
             val textBaseY = marginTop + photo.height + marginBottom * 0.24f
-            val lineSpacing = marginBottom * 0.22f
+            val lineSpacing = marginBottom * 0.24f
 
-            amberPaint.textAlign = Paint.Align.LEFT
-            drawBrandWithBadge(canvas, outW * 0.035f, textBaseY, brand, badge, ACCENT_YELLOW, ACCENT_YELLOW, marginBottom * 0.15f)
-
+            // Line 1: Brand & Badge (Left) vs EXIF (Right)
+            drawBrandWithBadge(canvas, leftX, textBaseY, brand, badge, ACCENT_YELLOW, ACCENT_YELLOW, marginBottom * 0.15f)
+            val brandBadgeW = estimateBrandBadgeWidth(brand, badge, marginBottom * 0.15f)
+            val exif = if (config.showExifParams) shot.formatExifSummary(" ") else ""
+            val safeExif = truncateText(exif, amberPaint, (rightX - (leftX + brandBadgeW + 20f)).coerceAtLeast(0f))
             amberPaint.textAlign = Paint.Align.RIGHT
-            val exif = shot.formatExifSummary(" ")
-            canvas.drawText(exif, outW * 0.965f, textBaseY, amberPaint)
+            canvas.drawText(safeExif, rightX, textBaseY, amberPaint)
 
-            // Line 2: GPS + Address + Weather
-            amberPaint.textAlign = Paint.Align.LEFT
+            // Line 2: Address / GPS (Left) vs Weather & Sensors (Right)
             val gpsStr = buildGpsAndLocationLine(data, config)
-            canvas.drawText(gpsStr, outW * 0.035f, textBaseY + lineSpacing, amberPaint)
-
-            amberPaint.textAlign = Paint.Align.RIGHT
+            val addr = buildAddressLine(data, config)
+            val leftLine2 = listOf(addr, gpsStr).filter { it.isNotBlank() }.joinToString("  ·  ")
             val weatherStr = buildWeatherAndSensorsLine(data, config)
-            canvas.drawText(weatherStr, outW * 0.965f, textBaseY + lineSpacing, amberPaint)
+            drawLeftRightText(canvas, textBaseY + lineSpacing, leftX, rightX, leftLine2, amberPaint, weatherStr, amberPaint)
 
         } else {
             val textY = marginTop + photo.height + marginBottom * 0.32f
             val dtStr = formatDateTime(time, config)
+            val exifSummary = if (config.showExifParams) shot.formatExifSummary(" ") else ""
+            val gpsStr = buildGpsCoordinatesString(data, config)
+            val rightText = if (gpsStr.isNotBlank() && config.showGpsOnFrame) "$exifSummary  ·  $gpsStr" else exifSummary
+
+            val brandW = estimateBrandBadgeWidth(brand, badge, marginBottom * 0.20f)
+            val centerLeftLimit = outW * 0.5f - brandW * 0.5f - 15f
+            val centerRightLimit = outW * 0.5f + brandW * 0.5f + 15f
+
+            val safeDt = truncateText(dtStr, amberPaint, (centerLeftLimit - leftX).coerceAtLeast(0f))
             amberPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText(dtStr, outW * 0.035f, textY, amberPaint)
+            canvas.drawText(safeDt, leftX, textY, amberPaint)
 
             drawBrandWithBadge(canvas, outW * 0.5f, textY, brand, badge, ACCENT_YELLOW, ACCENT_YELLOW, marginBottom * 0.20f, isCenter = true)
 
-            val rightX = outW * 0.965f
+            val safeRight = truncateText(rightText, amberPaint, (rightX - centerRightLimit).coerceAtLeast(0f))
             amberPaint.textAlign = Paint.Align.RIGHT
-            val exifSummary = shot.formatExifSummary(" ")
-            val gpsStr = buildGpsCoordinatesString(data, config)
-            val rightText = if (gpsStr.isNotBlank() && config.showGpsOnFrame) "$exifSummary  ·  $gpsStr" else exifSummary
-            canvas.drawText(rightText, rightX, textY, amberPaint)
+            canvas.drawText(safeRight, rightX, textY, amberPaint)
         }
 
         return out
@@ -646,38 +642,50 @@ object FrameWatermarkRenderer {
         // Top edge: ►► Chevron code & Site/Weather
         val topY = marginTop * 0.65f
         val siteStr = if (config.siteName.isNotBlank()) "  SITE: ${config.siteName}" else ""
-        canvas.drawText("►► 36EXP$siteStr", marginSide.toFloat() * 1.2f, topY, amberPaint)
-
-        amberPaint.textAlign = Paint.Align.RIGHT
+        val topCode = "►► 36EXP$siteStr"
         val topWeather = if (isFull) buildWeatherAndSensorsLine(data, config) else "ISO ${shot.iso ?: 400}"
-        canvas.drawText(topWeather, outW - marginSide.toFloat() * 1.2f, topY, amberPaint)
+        val leftX = marginSide.toFloat() * 1.2f
+        val rightX = outW - marginSide.toFloat() * 1.2f
+        drawLeftRightText(canvas, topY, leftX, rightX, topCode, amberPaint, topWeather, amberPaint)
 
         val bottomY = marginTop + photo.height + marginBottom * 0.45f
-        amberPaint.textAlign = Paint.Align.LEFT
         val brand = config.deviceBrand.ifBlank { "POCO X7" }
         val badge = config.deviceBadge.ifBlank { "Pro" }
 
         if (isFull) {
             val lineSpacing = marginBottom * 0.26f
-            drawBrandWithBadge(canvas, marginSide.toFloat() * 1.2f, bottomY - lineSpacing * 0.5f, brand, badge, 0xFFFFB300.toInt(), 0xFFFFB300.toInt(), marginBottom * 0.17f)
+            val brandBadgeW = estimateBrandBadgeWidth(brand, badge, marginBottom * 0.17f)
+            drawBrandWithBadge(canvas, leftX, bottomY - lineSpacing * 0.5f, brand, badge, 0xFFFFB300.toInt(), 0xFFFFB300.toInt(), marginBottom * 0.17f)
 
+            val exif = if (config.showExifParams) shot.formatExifSummary(" ") else ""
+            val safeExif = truncateText(exif, amberPaint, (rightX - (leftX + brandBadgeW + 20f)).coerceAtLeast(0f))
             amberPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(shot.formatExifSummary(" "), outW - marginSide.toFloat() * 1.2f, bottomY - lineSpacing * 0.5f, amberPaint)
+            canvas.drawText(safeExif, rightX, bottomY - lineSpacing * 0.5f, amberPaint)
 
-            amberPaint.textAlign = Paint.Align.LEFT
             val gpsStr = buildGpsAndLocationLine(data, config)
             val addr = buildAddressLine(data, config)
-            val subLine = listOf(gpsStr, addr).filter { it.isNotBlank() }.joinToString("  ·  ")
-            canvas.drawText(subLine, marginSide.toFloat() * 1.2f, bottomY + lineSpacing * 0.5f, amberPaint)
+            val subLine = listOf(addr, gpsStr).filter { it.isNotBlank() }.joinToString("  ·  ")
+            val dtStr = formatDateTime(time, config)
+            drawLeftRightText(canvas, bottomY + lineSpacing * 0.5f, leftX, rightX, subLine, amberPaint, dtStr, amberPaint)
         } else {
-            canvas.drawText(formatDateTime(time, config), marginSide.toFloat() * 1.2f, bottomY, amberPaint)
-            drawBrandWithBadge(canvas, outW * 0.5f, bottomY, brand, badge, 0xFFFFB300.toInt(), 0xFFFFB300.toInt(), marginBottom * 0.22f, isCenter = true)
-            val rightX = outW - marginSide.toFloat() * 1.2f
-            amberPaint.textAlign = Paint.Align.RIGHT
-            val exifSummary = shot.formatExifSummary(" ")
+            val dtStr = formatDateTime(time, config)
+            val exifSummary = if (config.showExifParams) shot.formatExifSummary(" ") else ""
             val gpsStr = buildGpsCoordinatesString(data, config)
             val rightText = if (gpsStr.isNotBlank() && config.showGpsOnFrame) "$exifSummary  $gpsStr" else exifSummary
-            canvas.drawText(rightText, rightX, bottomY, amberPaint)
+
+            val brandW = estimateBrandBadgeWidth(brand, badge, marginBottom * 0.22f)
+            val centerLeftLimit = outW * 0.5f - brandW * 0.5f - 15f
+            val centerRightLimit = outW * 0.5f + brandW * 0.5f + 15f
+
+            val safeDt = truncateText(dtStr, amberPaint, (centerLeftLimit - leftX).coerceAtLeast(0f))
+            amberPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText(safeDt, leftX, bottomY, amberPaint)
+
+            drawBrandWithBadge(canvas, outW * 0.5f, bottomY, brand, badge, 0xFFFFB300.toInt(), 0xFFFFB300.toInt(), marginBottom * 0.22f, isCenter = true)
+
+            val safeRight = truncateText(rightText, amberPaint, (rightX - centerRightLimit).coerceAtLeast(0f))
+            amberPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(safeRight, rightX, bottomY, amberPaint)
         }
 
         return out
@@ -710,6 +718,8 @@ object FrameWatermarkRenderer {
         canvas.drawBitmap(photo, marginSide.toFloat(), marginTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
 
         val startX = marginSide.toFloat() * 1.3f
+        val maxRightX = outW - marginSide.toFloat() * 1.3f
+        val maxLineWidth = (maxRightX - startX).coerceAtLeast(0f)
         val baseTop = marginTop + photo.height + marginBottom * 0.20f
         val lineSpacing = marginBottom * 0.20f
 
@@ -727,7 +737,9 @@ object FrameWatermarkRenderer {
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
                 }
                 val brandW = estimateBrandBadgeWidth(brand, badge, marginBottom * 0.17f)
-                canvas.drawText("  ·  $work", startX + brandW, baseTop, workPaint)
+                val remainingW = (maxRightX - (startX + brandW + 15f)).coerceAtLeast(0f)
+                val safeWork = truncateText("  ·  $work", workPaint, remainingW)
+                canvas.drawText(safeWork, startX + brandW, baseTop, workPaint)
             }
         }
 
@@ -737,12 +749,13 @@ object FrameWatermarkRenderer {
             textSize = marginBottom * 0.13f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
         }
-        val exifSummary = shot.formatExifSummary("  ")
+        val exifSummary = if (config.showExifParams) shot.formatExifSummary("  ") else ""
         val line2Text = if (isFull) {
             val weather = buildWeatherAndSensorsLine(data, config)
             if (weather.isNotBlank()) "$exifSummary  ·  $weather" else exifSummary
         } else exifSummary
-        canvas.drawText(line2Text, startX, baseTop + lineSpacing, coralPaint)
+        val safeLine2 = truncateText(line2Text, coralPaint, maxLineWidth)
+        canvas.drawText(safeLine2, startX, baseTop + lineSpacing, coralPaint)
 
         // Line 3: Date, Time & Coordinates (Warm Amber)
         val amberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -758,13 +771,14 @@ object FrameWatermarkRenderer {
             if (gpsStr.isNotBlank() && config.showGpsOnFrame) append("  ·  $gpsStr")
             if (locStr.isNotBlank() && !isFull) append("  ·  $locStr")
         }
-        canvas.drawText(line3, startX, baseTop + lineSpacing * 2f, amberPaint)
+        val safeLine3 = truncateText(line3, amberPaint, maxLineWidth)
+        canvas.drawText(safeLine3, startX, baseTop + lineSpacing * 2f, amberPaint)
 
         // Line 4: Motto / Full Address (Warm Golden Italic)
         val line4Text = if (isFull) {
             val addr = buildAddressLine(data, config)
             val motto = config.note.ifBlank { config.customMotto }
-            if (addr.isNotBlank()) "$addr  ·  $motto" else motto
+            if (addr.isNotBlank() && motto.isNotBlank()) "$addr  ·  $motto" else addr.ifBlank { motto }
         } else {
             config.note.ifBlank { config.customMotto.ifBlank { "Always believe that something wonderful is about to happen" } }
         }
@@ -773,7 +787,8 @@ object FrameWatermarkRenderer {
             textSize = marginBottom * 0.12f
             typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
         }
-        canvas.drawText(line4Text.take(65), startX, baseTop + lineSpacing * 3f, mottoPaint)
+        val safeLine4 = truncateText(line4Text, mottoPaint, maxLineWidth)
+        canvas.drawText(safeLine4, startX, baseTop + lineSpacing * 3f, mottoPaint)
 
         return out
     }
@@ -813,6 +828,8 @@ object FrameWatermarkRenderer {
         val brandY = centerY - sideW * 0.15f
         drawBrandWithBadge(canvas, barCenterX, brandY, brand, badge, Color.BLACK, Color.BLACK, sideW * 0.09f, isCenter = true)
 
+        val maxTextW = sideW * 0.86f
+
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFF555555.toInt()
             textSize = sideW * 0.065f
@@ -823,32 +840,41 @@ object FrameWatermarkRenderer {
         var curY = brandY + sideW * 0.13f
         val step = sideW * 0.11f
 
-        canvas.drawText(shot.formatExifSummary(" "), barCenterX, curY, textPaint)
-        curY += step
+        val exif = if (config.showExifParams) shot.formatExifSummary(" ") else ""
+        if (exif.isNotBlank()) {
+            val safeExif = truncateText(exif, textPaint, maxTextW)
+            canvas.drawText(safeExif, barCenterX, curY, textPaint)
+            curY += step
+        }
 
-        canvas.drawText(formatDateTime(time, config), barCenterX, curY, textPaint)
+        val dt = truncateText(formatDateTime(time, config), textPaint, maxTextW)
+        canvas.drawText(dt, barCenterX, curY, textPaint)
         curY += step
 
         val gpsStr = buildGpsCoordinatesString(data, config)
         if (gpsStr.isNotBlank() && config.showGpsOnFrame) {
-            canvas.drawText(gpsStr, barCenterX, curY, textPaint)
+            val safeGps = truncateText(gpsStr, textPaint, maxTextW)
+            canvas.drawText(safeGps, barCenterX, curY, textPaint)
             curY += step
         }
 
         if (isFull) {
             val addr = buildAddressLine(data, config)
             if (addr.isNotBlank()) {
-                canvas.drawText(addr.take(28), barCenterX, curY, textPaint)
+                val safeAddr = truncateText(addr, textPaint, maxTextW)
+                canvas.drawText(safeAddr, barCenterX, curY, textPaint)
                 curY += step
             }
             val weather = buildWeatherAndSensorsLine(data, config)
             if (weather.isNotBlank()) {
-                canvas.drawText(weather.take(28), barCenterX, curY, textPaint)
+                val safeWeather = truncateText(weather, textPaint, maxTextW)
+                canvas.drawText(safeWeather, barCenterX, curY, textPaint)
                 curY += step
             }
             val work = buildWorkAndProjectLine(config, cameraLabel)
             if (work.isNotBlank()) {
-                canvas.drawText(work.take(28), barCenterX, curY, textPaint)
+                val safeWork = truncateText(work, textPaint, maxTextW)
+                canvas.drawText(safeWork, barCenterX, curY, textPaint)
                 curY += step
             }
             if (config.has(StampField.MAP) && data.mapBitmap != null) {
@@ -864,6 +890,104 @@ object FrameWatermarkRenderer {
     // --------------------------------------------------------------------------------------
     // Visual Helpers & Data Builders
     // --------------------------------------------------------------------------------------
+
+    /**
+     * Efficiently truncates text to fit within [maxW] pixels using binary search.
+     * Appends an ellipsis (…) if truncation is necessary.
+     */
+    fun truncateText(text: String, paint: Paint, maxW: Float): String {
+        if (maxW <= 0f) return ""
+        val trimmed = text.trim()
+        if (trimmed.isEmpty() || paint.measureText(trimmed) <= maxW) return trimmed
+        val ellipsis = "…"
+        val ellW = paint.measureText(ellipsis)
+        if (ellW >= maxW) return ""
+        val targetW = maxW - ellW
+        var low = 0
+        var high = trimmed.length
+        var best = 0
+        while (low <= high) {
+            val mid = (low + high) / 2
+            val sub = trimmed.substring(0, mid)
+            if (paint.measureText(sub) <= targetW) {
+                best = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return trimmed.substring(0, best).trimEnd() + ellipsis
+    }
+
+    /**
+     * Draws left-aligned and right-aligned text on the same baseline [y]
+     * within the bounds [[leftX], [rightX]] with a guaranteed minimum gap [minGap].
+     *
+     * Overlapping is mathematically prevented: both sides are measured,
+     * allocated disjoint bounding boxes, and cleanly truncated with (…) if needed.
+     */
+    fun drawLeftRightText(
+        canvas: Canvas,
+        y: Float,
+        leftX: Float,
+        rightX: Float,
+        leftText: String,
+        leftPaint: Paint,
+        rightText: String,
+        rightPaint: Paint,
+        minGap: Float = 20f,
+    ) {
+        val availableW = rightX - leftX - minGap
+        if (availableW <= 0f) return
+
+        val cleanLeft = leftText.trim()
+        val cleanRight = rightText.trim()
+
+        if (cleanLeft.isEmpty() && cleanRight.isEmpty()) return
+
+        if (cleanRight.isEmpty()) {
+            val safeLeft = truncateText(cleanLeft, leftPaint, availableW + minGap)
+            leftPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText(safeLeft, leftX, y, leftPaint)
+            return
+        }
+
+        if (cleanLeft.isEmpty()) {
+            val safeRight = truncateText(cleanRight, rightPaint, availableW + minGap)
+            rightPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(safeRight, rightX, y, rightPaint)
+            return
+        }
+
+        val rawLeftW = leftPaint.measureText(cleanLeft)
+        val rawRightW = rightPaint.measureText(cleanRight)
+
+        leftPaint.textAlign = Paint.Align.LEFT
+        rightPaint.textAlign = Paint.Align.RIGHT
+
+        if (rawLeftW + rawRightW <= availableW) {
+            // Both fit comfortably with room to spare!
+            canvas.drawText(cleanLeft, leftX, y, leftPaint)
+            canvas.drawText(cleanRight, rightX, y, rightPaint)
+            return
+        }
+
+        // Available space is smaller than combined text.
+        // Allocate space proportionally, but guarantee each gets at least a sensible share.
+        val maxRightW = if (rawRightW < availableW * 0.45f) {
+            rawRightW
+        } else {
+            (availableW * 0.45f).coerceAtLeast(rawRightW.coerceAtMost(availableW * 0.55f))
+        }
+        val safeRight = truncateText(cleanRight, rightPaint, maxRightW)
+        val actualRightW = rightPaint.measureText(safeRight)
+
+        val maxLeftW = (availableW - actualRightW).coerceAtLeast(0f)
+        val safeLeft = truncateText(cleanLeft, leftPaint, maxLeftW)
+
+        canvas.drawText(safeLeft, leftX, y, leftPaint)
+        canvas.drawText(safeRight, rightX, y, rightPaint)
+    }
 
     private fun drawBrandWithBadge(
         canvas: Canvas,
@@ -1077,7 +1201,7 @@ object FrameWatermarkRenderer {
         if (config.has(StampField.CUSTOM_2) && config.custom2Label.isNotBlank()) {
             parts.add("${config.custom2Label}: ${config.custom2Value}")
         }
-        if (config.has(StampField.NOTE) && config.note.isNotBlank()) {
+        if (config.has(StampField.NOTE) && config.note.isNotBlank() && config.note != "Captured by GeoStamp Camera") {
             parts.add(config.note)
         }
         if (config.has(StampField.CAMERA_INFO) && !cameraLabel.isNullOrBlank()) {

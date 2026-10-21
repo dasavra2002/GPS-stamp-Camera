@@ -148,4 +148,99 @@ class WatermarkStyleTest {
         assertTrue(work.contains("#0042"))
         assertTrue(work.contains("Site: Central Hub"))
     }
+
+    @Test
+    fun testFrameWatermarkRendererWorkLineExcludesDefaultNote() {
+        val configWithDefaultNote = com.geostamp.camera.data.StampConfig(
+            enabled = setOf(com.geostamp.camera.data.StampField.NOTE, com.geostamp.camera.data.StampField.NUMBERING),
+            note = "Captured by GeoStamp Camera",
+            personName = "",
+            phone = "",
+            number = 5,
+            mapType = com.geostamp.camera.data.MapType.STREET,
+            font = com.geostamp.camera.data.FontStyle.SANS,
+            color = com.geostamp.camera.data.StampColor.WHITE,
+            background = com.geostamp.camera.data.StampBackground.DARK,
+            size = com.geostamp.camera.data.StampSize.MEDIUM,
+            position = com.geostamp.camera.data.StampPosition.BOTTOM,
+            mapPosition = com.geostamp.camera.data.MapPosition.RIGHT,
+            mapScalePercent = 100,
+            dateFormat = com.geostamp.camera.data.DateFormat.DMY_24,
+            logo = null,
+        )
+        val line = com.geostamp.camera.stamp.FrameWatermarkRenderer.buildWorkAndProjectLine(configWithDefaultNote, null)
+        assertEquals("#0005", line)
+        assertFalse(line.contains("Captured by GeoStamp Camera"))
+
+        val configWithCustomNote = configWithDefaultNote.copy(note = "Bridge inspection sector 4")
+        val customLine = com.geostamp.camera.stamp.FrameWatermarkRenderer.buildWorkAndProjectLine(configWithCustomNote, null)
+        assertTrue(customLine.contains("Bridge inspection sector 4"))
+    }
+
+    @Test
+    fun testFrameWatermarkRendererBuildAddressLine() {
+        val config = com.geostamp.camera.data.StampConfig(
+            enabled = setOf(
+                com.geostamp.camera.data.StampField.COUNTRY_FLAG,
+                com.geostamp.camera.data.StampField.ADDRESS,
+            ),
+            note = "",
+            personName = "",
+            phone = "",
+            number = 1,
+            mapType = com.geostamp.camera.data.MapType.STREET,
+            font = com.geostamp.camera.data.FontStyle.SANS,
+            color = com.geostamp.camera.data.StampColor.WHITE,
+            background = com.geostamp.camera.data.StampBackground.DARK,
+            size = com.geostamp.camera.data.StampSize.MEDIUM,
+            position = com.geostamp.camera.data.StampPosition.BOTTOM,
+            mapPosition = com.geostamp.camera.data.MapPosition.RIGHT,
+            mapScalePercent = 100,
+            dateFormat = com.geostamp.camera.data.DateFormat.DMY_24,
+            logo = null,
+        )
+        val data = com.geostamp.camera.data.StampData(
+            countryCode = "IN",
+            address = "Roorkee, Uttarakhand 247667, India",
+        )
+        val addrLine = com.geostamp.camera.stamp.FrameWatermarkRenderer.buildAddressLine(data, config)
+        assertTrue(addrLine.contains("🇮🇳"))
+        assertTrue(addrLine.contains("Roorkee, Uttarakhand 247667, India"))
+    }
+
+    @Test
+    fun testFrameWatermarkRendererBuildGpsAndLocationLine() {
+        val config = com.geostamp.camera.data.StampConfig(
+            enabled = setOf(
+                com.geostamp.camera.data.StampField.LAT_LONG,
+                com.geostamp.camera.data.StampField.ALTITUDE,
+                com.geostamp.camera.data.StampField.PLUS_CODE,
+            ),
+            note = "",
+            personName = "",
+            phone = "",
+            number = 1,
+            mapType = com.geostamp.camera.data.MapType.STREET,
+            font = com.geostamp.camera.data.FontStyle.SANS,
+            color = com.geostamp.camera.data.StampColor.WHITE,
+            background = com.geostamp.camera.data.StampBackground.DARK,
+            size = com.geostamp.camera.data.StampSize.MEDIUM,
+            position = com.geostamp.camera.data.StampPosition.BOTTOM,
+            mapPosition = com.geostamp.camera.data.MapPosition.RIGHT,
+            mapScalePercent = 100,
+            dateFormat = com.geostamp.camera.data.DateFormat.DMY_24,
+            coordinateFormat = com.geostamp.camera.data.CoordinateFormat.DECIMAL,
+            logo = null,
+        )
+        val data = com.geostamp.camera.data.StampData(
+            latitude = 29.8630,
+            longitude = 77.8924,
+            altitude = 268.0,
+            plusCode = "7JWV+5C Roorkee",
+        )
+        val gpsLine = com.geostamp.camera.stamp.FrameWatermarkRenderer.buildGpsAndLocationLine(data, config)
+        assertTrue(gpsLine.contains("29.863000° N"))
+        assertTrue(gpsLine.contains("268m"))
+        assertTrue(gpsLine.contains("7JWV+5C Roorkee"))
+    }
 }
