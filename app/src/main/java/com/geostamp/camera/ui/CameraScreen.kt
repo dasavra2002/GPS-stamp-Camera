@@ -525,8 +525,11 @@ fun CameraScreen(
         }
     }
 
-    /** [cameraJpeg] is the camera's own JPEG: its EXIF is carried over, and it's kept as the original if asked. */
-    suspend fun saveStamped(bmp0: Bitmap, lens: LensInfo, cameraJpeg: ByteArray? = null) {
+    /**
+     * [cameraJpeg] is the camera's own JPEG: its EXIF is carried over, and it's kept as the original if asked.
+     * [cameraRotation] is CameraX's rotation for an in-memory JPEG, null when the file's EXIF already has it.
+     */
+    suspend fun saveStamped(bmp0: Bitmap, lens: LensInfo, cameraJpeg: ByteArray? = null, cameraRotation: Int? = null) {
         val time = ZonedDateTime.now()
         val cfg = settings.snapshot()
         val d = stampDataFor(lens)
@@ -542,7 +545,7 @@ fun CameraScreen(
             val site = cfg.siteName.ifBlank { null }
             val exif = CameraExif.fromShotParams(shotParams) + (cameraJpeg?.let { CameraExif.read(it) } ?: emptyMap())
             if (cam.keepOriginal && cameraJpeg != null) {
-                PhotoSaver.saveOriginal(context, cameraJpeg, d, time, cfg.number, source, subFolder = site)
+                PhotoSaver.saveOriginal(context, cameraJpeg, d, time, cfg.number, source, subFolder = site, rotationDegrees = cameraRotation)
             }
             val bmp = if (photoCrop) PhotoComposer.cropToAspect(bmp0, cam.photoAspect.ratio) else bmp0
             val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label, shotParams)
@@ -612,7 +615,7 @@ fun CameraScreen(
                     if (enhanced !== bmp && !bmp.isRecycled) bmp.recycle()
                     bmp = enhanced
                 }
-                saveStamped(bmp, lens, photo.jpeg)
+                saveStamped(bmp, lens, photo.jpeg, photo.rotationDegrees)
             }
         }
     }

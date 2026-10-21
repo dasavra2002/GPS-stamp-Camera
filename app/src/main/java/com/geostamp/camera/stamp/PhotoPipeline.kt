@@ -303,12 +303,15 @@ object PhotoSaver {
         val name = fileName(prefix)
         val temp = File(context.cacheDir, name)
         temp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
-        return finish(context, temp, name, data, time, number, locationSource, subFolder, null, cameraExif, uprightPixels = true)
+        // The bitmap was turned upright before encoding, so no rotation is left to apply.
+        return finish(context, temp, name, data, time, number, locationSource, subFolder, null, cameraExif, ExifInterface.ORIENTATION_NORMAL)
     }
 
     /**
      * Saves the camera's own JPEG, unstamped and not re-compressed, to Pictures/GeoStamp/Originals.
      * It gets the same GPS/time EXIF and its own capture proof, so the clean image can be checked too.
+     *
+     * @param rotationDegrees the rotation CameraX reported for an in-memory capture; null keeps the file's own orientation tag.
      */
     fun saveOriginal(
         context: Context,
@@ -318,12 +321,21 @@ object PhotoSaver {
         number: Int,
         locationSource: String,
         subFolder: String? = null,
+        rotationDegrees: Int? = null,
     ): Uri? {
         val name = fileName("Original")
         val temp = File(context.cacheDir, name)
         temp.writeBytes(jpeg)
         // The camera's EXIF is already in the file; only location, time and the proof are added.
-        return finish(context, temp, name, data, time, number, locationSource, subFolder, ORIGINALS, emptyMap(), uprightPixels = false)
+        val orientation = rotationDegrees?.let {
+            when ((it % 360 + 360) % 360) {
+                90 -> ExifInterface.ORIENTATION_ROTATE_90
+                180 -> ExifInterface.ORIENTATION_ROTATE_180
+                270 -> ExifInterface.ORIENTATION_ROTATE_270
+                else -> ExifInterface.ORIENTATION_NORMAL
+            }
+        }
+        return finish(context, temp, name, data, time, number, locationSource, subFolder, ORIGINALS, emptyMap(), orientation)
     }
 
     private fun fileName(prefix: String) =
@@ -340,7 +352,7 @@ object PhotoSaver {
         subFolder: String?,
         nested: String?,
         cameraExif: Map<String, String>,
-        uprightPixels: Boolean,
+        orientation: Int?,
     ): Uri? {
         val proof = CaptureProof.imageHash(temp.readBytes())?.let { hash ->
             DeviceKey.sign(
@@ -358,7 +370,7 @@ object PhotoSaver {
                 ),
             )
         }
-        writeExif(temp, data, time, proof, cameraExif, uprightPixels)
+        writeExif(temp, data, time, proof, cameraExif, orientation)
 
         return try {
             val folder = folderPath(subFolder, nested)
@@ -374,13 +386,12 @@ object PhotoSaver {
         time: ZonedDateTime,
         proof: ProofRecord?,
         cameraExif: Map<String, String>,
-        uprightPixels: Boolean,
+        orientation: Int?,
     ) {
         try {
             val exif = ExifInterface(file)
             cameraExif.forEach { (tag, value) -> exif.setAttribute(tag, value) }
-            // The bitmap was turned upright before encoding, so no rotation is left to apply.
-            if (uprightPixels) exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+            orientation?.let { exif.setAttribute(ExifInterface.TAG_ORIENTATION, it.toString()) }
             if (d.latitude != null && d.longitude != null) {
                 exif.setLatLong(d.latitude, d.longitude)
                 exif.setAttribute(ExifInterface.TAG_GPS_MAP_DATUM, "WGS-84")
