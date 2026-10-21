@@ -73,6 +73,27 @@ All major architecture and feature items identified across the project reviews a
    - NMEA 0183 parser for `$GPGGA`, `$GNGGA`, `$GPRMC`, `$GNRMC` with checksum validation.
    - Detection of RTK Fixed (`±0.02m`), RTK Float, and DGPS accuracy with real-time satellite count, HDOP, and live MSL altitude ingestion into `StampDataRepository`.
 
+### Milestone 7: UI & Viewfinder Overhaul, Material 3 Design & Responsive Auto-Rotation
+1. **Permanent, Elevated Material 3 Settings Access:**
+   - Replaced overcrowded single-row top bar with an ergonomic two-tier Material 3 camera header.
+   - **Tier 1 (Fixed Action Bar):** Flash toggle, Grid Guide toggle, centered live GPS Status Pill with pulse indicator, Location Refresh, Gallery shortcut, and an elevated **Material 3 Settings Button** in `primaryContainer` with 3dp shadow elevation, guaranteed permanently visible on any device screen size.
+   - **Tier 2 (Scrollable Quick Strip):** Smooth horizontally scrollable chip strip for `HDR`, `RAW`, `🌙 Night`, `👤 Portrait`, `Punch In`, `PiP`, `DOC`, `🎙 Voice`, `🔲 QR`, `📄 OCR`, `✨ AI Caption`, and `👻 Ghost Overlay`.
+2. **True-to-Scale Edge-to-Edge Preview & Realistic Watermark Scaling:**
+   - Switched `PreviewView.scaleType` to `FILL_CENTER` to eliminate internal black letterbox borders.
+   - Responsive aspect ratio calculation dynamically adapting between portrait (`1 / ratio`) and landscape (`ratio`).
+   - Frame Watermark Templates (`ELEGANT_BOTTOM_BAR`, `PROFESSIONAL_FRAMED_CARD`, `MINIMAL_FILM_STRIP`): render full-frame edge-to-edge overlay with `FillBounds`.
+   - Classic Geo Badge: rendered crisply with proportional scaling (`frac.coerceIn(0.65f, 0.98f)`), matching the saved photo output.
+3. **Full-Sensor Auto-Rotation & Ergonomic Landscape Camera Mode:**
+   - Configured `android:screenOrientation="fullSensor"` in `AndroidManifest.xml`.
+   - Built a responsive Landscape UI (`Configuration.ORIENTATION_LANDSCAPE`):
+     - Edge-to-edge widescreen camera viewfinder occupying maximum screen space.
+     - Dedicated 116dp right-hand thumb deck featuring vertical mode selector, floating lens switcher capsule, dual-ring shutter button (+ video snapshot button), last thumbnail, and dedicated flip camera button.
+4. **Modernized Bottom Deck & Shutter Controls:**
+   - Centered floating M3 lens switcher capsule (`Surface(shape = CircleShape)`).
+   - Material 3 sliding mode selector pill bar (`PHOTO`, `VIDEO`, `SLOW-MO`, `TIMELAPSE`).
+   - Tactile Dual-Ring Shutter Button: mode-reactive outer ring and inner trigger with visual press feedback and haptics.
+   - Dedicated Flip Camera button (`Icons.Filled.Cameraswitch`) for 1-tap switching between front and rear lenses.
+
 ---
 
 ## 3. Verification & Quality Assurance Summary

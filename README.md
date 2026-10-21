@@ -103,6 +103,19 @@ flowchart TD
 
 ### 2. Viewfinder Monitoring & Pro Display Parameters
 
+- **Material 3 Camera Header (Two-Tier Design):**
+  - **Tier 1 (Fixed Action Bar):** Flash mode toggle, Grid Guide toggle, live centered GPS Status Pill (with green/amber pulse indicator and live accuracy), GPS Refresh, Gallery shortcut, and an elevated **Material 3 Settings Button** (`primaryContainer` with 3dp elevation) permanently anchored on the top-right corner, guaranteed visible and accessible on any screen size.
+  - **Tier 2 (Scrollable Quick Strip):** Fluid horizontally scrollable chip bar hosting fast toggles for HDR, RAW, 🌙 Night, 👤 Portrait, Punch In, PiP, DOC, 🎙 Voice Memo, 🔲 QR Scan, 📄 OCR Text, ✨ AI Caption, and 👻 Ghost Angle Overlay.
+- **Full Sensor Auto-Rotation & Ergonomic Landscape Mode:**
+  - Full sensor orientation tracking (`android:screenOrientation="fullSensor"`) dynamically restructuring UI layout on device tilt.
+  - **Landscape Mode (`ORIENTATION_LANDSCAPE`):** Expands the camera viewfinder edge-to-edge across the widescreen display, shifting camera controls into a dedicated 116dp right-hand thumb deck featuring a vertical mode selector, floating lens capsule, dual-ring tactile shutter button (+ video snapshot button), last thumbnail, and 1-tap camera flip button.
+- **Edge-to-Edge Preview & True-Scale Watermark Viewfinder:**
+  - Uses `PreviewView.ScaleType.FILL_CENTER` to eliminate internal black letterboxing borders.
+  - Live watermark rendering engine accurately reflects the saved photo output: full-frame bounds for templates (`ELEGANT_BOTTOM_BAR`, `PROFESSIONAL_FRAMED_CARD`, `MINIMAL_FILM_STRIP`) and crisp proportional scaling for the Classic Geo Badge.
+- **Tactile Dual-Ring Shutter & Modern Bottom Deck:**
+  - Modern dual-ring shutter button with mode-reactive styling: Pure White (Photo), Deep Red (Video), Electric Cyan (Slow-Mo), and Vivid Amber (Timelapse).
+  - Floating M3 capsule lens switcher (`0.5×`, `1×`, `2×`, `Front`).
+  - Dedicated Flip Camera button (`Icons.Filled.Cameraswitch`) in an elevated circular container.
 - **Focus Peaking:** Real-time 3x3 Sobel edge-gradient detection running on the luminance plane of `ImageAnalysis`. Masks in-focus high-contrast edges with neon green (`#00FF41`) during manual focusing.
 - **Exposure Verification (Zebra Clipping):** Dual-threshold luminance inspection:
   - Highlights severe underexposure ($Y < 16$) in vivid blue.
