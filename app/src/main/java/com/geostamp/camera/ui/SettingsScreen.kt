@@ -107,6 +107,7 @@ import com.geostamp.camera.data.Labeled
 import com.geostamp.camera.data.MapPosition
 import com.geostamp.camera.data.MapType
 import com.geostamp.camera.data.OfflineMapManager
+import com.geostamp.camera.data.TileSources
 import com.geostamp.camera.data.PhotoAspect
 import com.geostamp.camera.data.PhotoFormat
 import com.geostamp.camera.data.SnapshotMode
@@ -891,7 +892,19 @@ private fun GpsAndSensorsTabContent(
 
         // Offline Map Pack Card
         item(key = "offline_map_cache_card") {
-            SettingsGroupCard(title = "Offline Map Tile Storage") {
+            SettingsGroupCard(title = "Map Tiles & Offline Storage") {
+                InlineField("Custom Tile Server URL ({z}/{x}/{y})", settings.customTileUrl, KeyboardType.Uri) { settings.customTileUrl = it.trim() }
+                if (settings.customTileUrl.isNotBlank()) {
+                    InlineField("Map Attribution (shown on stamp)", settings.customTileAttribution) { settings.customTileAttribution = it }
+                    if (!TileSources.isValidTemplate(settings.customTileUrl)) {
+                        Text(
+                            "Needs an https:// URL containing {z}, {x} and {y}.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
+                }
                 OfflineMapPackRow(settings, data)
             }
         }
@@ -1318,6 +1331,15 @@ private fun OfflineMapPackRow(settings: StampSettings, data: com.geostamp.camera
             Text(progressText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(4.dp))
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else if (!TileSources.forType(settings.mapType).bulkDownloadAllowed) {
+            Text(
+                "Map packs can't be downloaded from the free OpenStreetMap and Esri servers: their terms forbid " +
+                    "bulk downloads. Maps you have already seen stay cached. To download whole sites for offline " +
+                    "work, add a custom tile server above from a provider whose plan allows offline use " +
+                    "(for example MapTiler, Thunderforest or Stadia Maps).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         } else {
             val lat = settings.siteLat ?: data.latitude
             val lon = settings.siteLon ?: data.longitude
@@ -1337,7 +1359,7 @@ private fun OfflineMapPackRow(settings: StampSettings, data: com.geostamp.camera
                             centerLat = lat,
                             centerLon = lon,
                             radiusKm = 3.0,
-                            mapType = settings.mapType,
+                            source = TileSources.forType(settings.mapType),
                             onProgress = { cur, tot ->
                                 progressText = "Downloading ($cur/$tot tiles)…"
                             },

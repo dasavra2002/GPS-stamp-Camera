@@ -178,8 +178,8 @@ GeoStamp features 4 distinct watermark rendering architectures with a toggle bet
 
 For remote field sites (mining plots, rural infrastructure, solar farms, oil pipelines) lacking cell coverage:
 - **`OfflineMapManager`:** Computes Web Mercator bounding boxes for any site coordinate and radius (1 km to 10 km) across zoom levels 14 to 17.
-- **Pre-Caching Download:** Downloads OpenStreetMap and satellite/terrain tiles into the local cache directory with live progress indicator.
-- **Disk LRU Fallback:** Watermark renderer seamlessly pulls tiles from disk when offline, ensuring 100% reliable map watermarks without internet.
+- **Pre-Caching Download:** Downloads every tile of a site with a live progress indicator, one request at a time and capped at 5,000 tiles per pack. This only works with a **custom tile server** (Settings > Map Tiles & Offline Storage) from a provider whose plan allows offline use, such as MapTiler, Thunderforest, Stadia Maps or a self-hosted server. The free OpenStreetMap and Esri servers forbid bulk downloading, so the app doesn't offer it for them.
+- **Viewed-Tile Cache:** Tiles fetched for stamps are cached on disk, so a site you've already photographed keeps its map watermark offline.
 - **Storage Management:** Settings interface displays cached tile count and disk size in MB, with a one-tap cache cleanup tool.
 
 ---
@@ -215,7 +215,7 @@ For remote field sites (mining plots, rural infrastructure, solar farms, oil pip
 
 All data fetching is free, private, and requires zero proprietary API keys:
 - **Geolocation & Reverse Geocoding:** Android system `Geocoder` (offline & platform cached).
-- **Map Tiles:** OpenStreetMap (Street) and Esri ArcGIS (Satellite & Terrain). Full OpenStreetMap and Esri attributions are printed directly on the map watermark.
+- **Map Tiles:** OpenStreetMap (Street) and Esri ArcGIS (Satellite & Terrain) by default, fetched only for the map actually shown, or your own tile server. The provider's attribution is printed on every map watermark.
 - **Weather Telemetry:** Open-Meteo REST API (current and historical hourly reanalysis for gallery photos).
 - **Plus Codes:** On-device Open Location Code algorithmic computation.
 - **Privacy:** All photos, GPS coordinates, voice notes, and ML vision inferences remain strictly on-device unless the user explicitly triggers Google Drive backup or export.

@@ -8,11 +8,14 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.text.TextPaint
+import android.text.TextUtils
 import com.geostamp.camera.data.CoordinateConverter
 import com.geostamp.camera.data.FrameDataDensity
 import com.geostamp.camera.data.StampConfig
 import com.geostamp.camera.data.StampData
 import com.geostamp.camera.data.StampField
+import com.geostamp.camera.data.TileSources
 import com.geostamp.camera.data.WatermarkStyle
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -136,7 +139,7 @@ object FrameWatermarkRenderer {
             if (config.has(StampField.MAP) && data.mapBitmap != null) {
                 val mapW = accessoryH * 1.15f
                 val mapRect = RectF(rightEdgeX - mapW, centerY - accessoryH * 0.5f, rightEdgeX, centerY + accessoryH * 0.5f)
-                drawMiniMap(canvas, mapRect, data.mapBitmap)
+                drawMiniMap(canvas, mapRect, data.mapBitmap, TileSources.forType(data.mapType).attribution)
                 rightEdgeX -= mapW + padX * 0.4f
             }
             if (config.has(StampField.QR_CODE)) {
@@ -332,7 +335,7 @@ object FrameWatermarkRenderer {
             if (config.has(StampField.MAP) && data.mapBitmap != null) {
                 val mapW = accessoryH * 1.15f
                 val mapRect = RectF(rightEdgeX - mapW, centerY - accessoryH * 0.5f, rightEdgeX, centerY + accessoryH * 0.5f)
-                drawMiniMap(canvas, mapRect, data.mapBitmap)
+                drawMiniMap(canvas, mapRect, data.mapBitmap, TileSources.forType(data.mapType).attribution)
                 rightEdgeX -= mapW + padX * 0.35f
             }
             if (config.has(StampField.QR_CODE)) {
@@ -964,7 +967,7 @@ object FrameWatermarkRenderer {
             if (config.has(StampField.MAP) && data.mapBitmap != null) {
                 val mapSide = sideW * 0.55f
                 val mapRect = RectF(barCenterX - mapSide * 0.5f, curY, barCenterX + mapSide * 0.5f, curY + mapSide)
-                drawMiniMap(canvas, mapRect, data.mapBitmap)
+                drawMiniMap(canvas, mapRect, data.mapBitmap, TileSources.forType(data.mapType).attribution)
             }
         }
 
@@ -1163,13 +1166,23 @@ object FrameWatermarkRenderer {
         }
     }
 
-    private fun drawMiniMap(canvas: Canvas, rect: RectF, mapBmp: Bitmap, cornerRadius: Float = 14f) {
+    private fun drawMiniMap(canvas: Canvas, rect: RectF, mapBmp: Bitmap, attribution: String, cornerRadius: Float = 14f) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         val clipPath = Path().apply { addRoundRect(rect, cornerRadius, cornerRadius, Path.Direction.CW) }
         canvas.save()
         canvas.clipPath(clipPath)
         val src = Rect(0, 0, mapBmp.width, mapBmp.height)
         canvas.drawBitmap(mapBmp, src, rect, paint)
+        // The map providers' terms require visible attribution.
+        val ap = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = (rect.height() * 0.07f).coerceAtLeast(9f)
+            textAlign = Paint.Align.RIGHT
+            setShadowLayer(textSize * 0.25f, 0f, 0f, Color.BLACK)
+        }
+        val pad = ap.textSize * 0.5f
+        val text = TextUtils.ellipsize(attribution, TextPaint(ap), rect.width() - 2 * pad, TextUtils.TruncateAt.END).toString()
+        canvas.drawText(text, rect.right - pad, rect.bottom - pad, ap)
         canvas.restore()
 
         val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
