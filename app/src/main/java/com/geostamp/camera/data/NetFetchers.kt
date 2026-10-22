@@ -146,8 +146,8 @@ object WeatherFetcher {
 }
 
 /**
- * Builds a square map image centred on a point by stitching free map tiles.
- * Satellite / Terrain: Esri. Street: OpenStreetMap.
+ * Builds a square map image centred on a point by stitching map tiles from [TileSources.forType].
+ * Only the few tiles around the point are fetched, and they are cached for reuse.
  */
 object MapTileFetcher {
     private const val TILE = 256
@@ -174,7 +174,8 @@ object MapTileFetcher {
         val canvas = Canvas(out)
         canvas.drawColor(Color.rgb(60, 60, 60))
 
-        val cacheBase = context?.let { File(it.cacheDir, "map_tiles/${type.name.lowercase()}/$zoom") }
+        val source = TileSources.forType(type)
+        val cacheBase = context?.let { File(OfflineMapManager.cacheDir(it, source), zoom.toString()) }
 
         var gotAny = false
         val tx0 = floor(left / TILE).toInt()
@@ -189,14 +190,7 @@ object MapTileFetcher {
                 val bytes: ByteArray? = if (cacheFile != null && cacheFile.exists() && cacheFile.length() > 0) {
                     runCatching { cacheFile.readBytes() }.getOrNull()
                 } else {
-                    val url = when (type) {
-                        MapType.SATELLITE ->
-                            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$zoom/$ty/$wrappedX"
-                        MapType.TERRAIN ->
-                            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/$zoom/$ty/$wrappedX"
-                        MapType.STREET ->
-                            "https://tile.openstreetmap.org/$zoom/$wrappedX/$ty.png"
-                    }
+                    val url = source.url(zoom, wrappedX, ty)
                     val downloaded = httpGet(url)
                     if (downloaded != null && cacheFile != null) {
                         runCatching {

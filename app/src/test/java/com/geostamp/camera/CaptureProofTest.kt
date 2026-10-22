@@ -102,7 +102,7 @@ class CaptureProofTest {
     fun canonicalFormIsStable() {
         val p = payload("ef".repeat(32))
         assertEquals(p.canonical(), ProofPayload.fromJson(p.toJson()).canonical())
-        assertTrue(p.canonical().startsWith("geostamp-proof:v1\nlat=22.5726000\n"))
+        assertTrue(p.canonical().startsWith("geostamp-proof:v${ProofPayload.VERSION}\nlat=22.5726000\n"))
     }
 
     @Test

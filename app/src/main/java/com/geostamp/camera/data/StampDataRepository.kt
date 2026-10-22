@@ -150,6 +150,10 @@ class StampDataRepository(
         onLocation(loc, sourceId)
     }
 
+    @Suppress("DEPRECATION")
+    private fun isMock(loc: Location): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) loc.isMock else loc.isFromMockProvider
+
     /** The external receiver disconnected; the phone's GPS takes over at its next fix. */
     fun externalLocationLost() {
         arbiter.onExternalLost()
@@ -187,6 +191,8 @@ class StampDataRepository(
                 altitude = if (!loc.hasAltitude()) null else if (needsMsl && it.altitude != null) it.altitude else loc.altitude,
                 accuracyM = if (loc.hasAccuracy()) loc.accuracy else null,
                 locationSource = source,
+                isMock = !external && isMock(loc),
+                fixElapsedMs = if (loc.elapsedRealtimeNanos > 0) loc.elapsedRealtimeNanos / 1_000_000 else SystemClock.elapsedRealtime(),
                 plusCode = PlusCode.encode(loc.latitude, loc.longitude),
             )
         }

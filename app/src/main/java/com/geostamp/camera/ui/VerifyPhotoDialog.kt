@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
+import com.geostamp.camera.location.FixCheck
 import com.geostamp.camera.stamp.CaptureProof
 import com.geostamp.camera.stamp.DeviceKey
 import com.geostamp.camera.stamp.KeyTrust
@@ -130,6 +131,9 @@ private fun ProofDetails(c: ProofCheck) {
                 else -> "Google hardware attestation is missing, so the key could have been made anywhere."
             },
         )
+        p.mock?.let {
+            CheckRow(!it, "Real location", "Not from a mock-location app.", "The location came from a mock-location (fake GPS) app.")
+        }
         c.verifiedBoot?.let {
             CheckRow(it, "Phone not modified", "Bootloader locked and system verified at boot.", "Bootloader unlocked or system modified (rooted phones can fake GPS).")
         }
@@ -139,6 +143,7 @@ private fun ProofDetails(c: ProofCheck) {
             Detail("Location", String.format(Locale.US, "%.6f, %.6f", p.latitude, p.longitude))
         }
         p.accuracyM?.let { Detail("Accuracy", String.format(Locale.US, "±%.1f m", it)) }
+        p.fixAgeS?.let { Detail("Fix age", FixCheck.formatAge(it * 1000) + " before saving") }
         p.altitude?.let { Detail("Altitude", String.format(Locale.US, "%.1f m", it)) }
         Detail("Location from", sourceLabel(p.locationSource))
         Detail("Photo number", p.number.toString())

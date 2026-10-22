@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.util.Size
 import android.view.MotionEvent
 import android.view.OrientationEventListener
@@ -93,6 +94,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -129,6 +131,7 @@ import com.geostamp.camera.data.FrameGuide
 import com.geostamp.camera.data.PhotoFormat
 import com.geostamp.camera.data.SnapshotMode
 import com.geostamp.camera.data.SlowMoSpeed
+import com.geostamp.camera.data.StampConfig
 import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampField
 import com.geostamp.camera.data.ExtensionModeType
@@ -138,9 +141,11 @@ import com.geostamp.camera.data.VolumeButtonAction
 import com.geostamp.camera.data.StampTemplate
 import com.geostamp.camera.data.VideoColor
 import com.geostamp.camera.data.VideoRes
+import com.geostamp.camera.location.FixCheck
+import com.geostamp.camera.location.FixIssue
 import com.geostamp.camera.stamp.PhotoComposer
-import com.geostamp.camera.stamp.PhotoSaver
 import com.geostamp.camera.stamp.ShotParams
+import com.geostamp.camera.stamp.StampedCapture
 import com.geostamp.camera.stamp.WatermarkRenderer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -171,6 +176,15 @@ fun CameraScreen(
     val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val data by repo.data.collectAsState()
+    // Ticks once a second so the GPS pill can show a fix getting old.
+    val nowMs by produceState(SystemClock.elapsedRealtime()) {
+        while (true) {
+            delay(1000)
+            value = SystemClock.elapsedRealtime()
+        }
+    }
+    val fixAgeMs = data.fixElapsedMs?.let { nowMs - it }
+    val fixIssues = FixCheck.issues(data.latitude != null, fixAgeMs, data.accuracyM, data.isMock)
     val readout by controller.readout.collectAsState()
     val histogram by controller.histogram.collectAsState()
     val focusPeakingBmp by controller.focusPeakingBitmap.collectAsState()
@@ -396,8 +410,11 @@ fun CameraScreen(
     }
 
     fun warnIfNoGps() {
-        if (repo.data.value.latitude == null) {
-            Toast.makeText(context, "No GPS fix yet – location fields will be blank", Toast.LENGTH_SHORT).show()
+        val d = repo.data.value
+        val age = d.fixElapsedMs?.let { SystemClock.elapsedRealtime() - it }
+        val issues = FixCheck.issues(d.latitude != null, age, d.accuracyM, d.isMock)
+        FixCheck.warning(issues, age, d.accuracyM)?.let {
+            Toast.makeText(context, it, if (FixIssue.NO_FIX in issues) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
         }
     }
 
@@ -484,6 +501,14 @@ fun CameraScreen(
         controller.setVideoStamp(if (mode.isVideo) bmp else null, config.size, config.position == StampPosition.TOP)
     }
 
+    fun shotParamsFor(lens: LensInfo, cfg: StampConfig) = ShotParams(
+        focalMm = lens.equivFocalMm,
+        aperture = lens.aperture,
+        shutterNs = readout.exposureNs,
+        iso = readout.iso,
+        model = cfg.deviceBrand.ifBlank { null },
+    )
+
     fun stampDataFor(lens: LensInfo) = repo.data.value.let { d0 ->
         if (lens.isFront) d0.copy(azimuthDeg = d0.azimuthDeg?.let { (it + 180f) % 360f }) else d0
     }
@@ -508,33 +533,31 @@ fun CameraScreen(
         }
     }
 
-    suspend fun saveStamped(bmp0: Bitmap, lens: LensInfo) {
-        val time = ZonedDateTime.now()
+    /**
+     * [cameraJpeg] is the camera's own JPEG: its EXIF is carried over, and it's kept as the original if asked.
+     * [cameraRotation] is CameraX's rotation for an in-memory JPEG, null when the file's EXIF already has it.
+     */
+    suspend fun saveStamped(bmp0: Bitmap, lens: LensInfo, cameraJpeg: ByteArray? = null, cameraRotation: Int? = null) {
         val cfg = settings.snapshot()
-        val d = stampDataFor(lens)
-        val shotParams = ShotParams(
-            focalMm = lens.equivFocalMm,
-            aperture = lens.aperture,
-            shutterNs = readout.exposureNs,
-            iso = readout.iso,
-            model = cfg.deviceBrand.ifBlank { null },
+        val request = StampedCapture.Request(
+            frame = bmp0,
+            config = cfg,
+            data = stampDataFor(lens),
+            time = ZonedDateTime.now(),
+            lensLabel = lens.label,
+            shotParams = shotParamsFor(lens, cfg),
+            cropRatio = if (photoCrop) cam.photoAspect.ratio else null,
+            subFolder = cfg.siteName.ifBlank { null },
+            cameraJpeg = cameraJpeg,
+            cameraRotation = cameraRotation,
+            keepOriginal = cam.keepOriginal,
         )
-        val result = withContext(Dispatchers.Default) {
-            val bmp = if (photoCrop) PhotoComposer.cropToAspect(bmp0, cam.photoAspect.ratio) else bmp0
-            val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label, shotParams)
-            val uri = PhotoSaver.save(context, stamped, d, time, cfg.number, d.locationSource ?: "none", subFolder = cfg.siteName.ifBlank { null })
-            val thumbW = 240
-            val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
-            stamped.recycle()
-            if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()
-            if (bmp0 !== bmp && bmp0 !== stamped && !bmp0.isRecycled) bmp0.recycle()
-            uri to thumb
-        }
+        val result = withContext(Dispatchers.Default) { StampedCapture.save(context, request) }
         settings.nextNumber = settings.nextNumber + 1
-        lastUri = result.first
+        lastUri = result.uri
         lastMime = "image/jpeg"
-        lastThumb = result.second
-        if (result.first == null) {
+        lastThumb = result.thumbnail
+        if (result.uri == null) {
             Toast.makeText(context, "Couldn't save photo", Toast.LENGTH_SHORT).show()
         } else if (cam.autoDriveUpload) {
             uploadLastToGoogleDrive()
@@ -556,7 +579,7 @@ fun CameraScreen(
                 try {
                     controller.takeRawAndJpeg(tmp, location)
                     val bmp = withContext(Dispatchers.Default) { PhotoComposer.decodeFile(context, tmp) }
-                    saveStamped(bmp, lens)
+                    saveStamped(bmp, lens, withContext(Dispatchers.IO) { tmp.readBytes() })
                 } finally {
                     tmp.delete()
                 }
@@ -588,7 +611,7 @@ fun CameraScreen(
                     if (enhanced !== bmp && !bmp.isRecycled) bmp.recycle()
                     bmp = enhanced
                 }
-                saveStamped(bmp, lens)
+                saveStamped(bmp, lens, photo.jpeg, photo.rotationDegrees)
             }
         }
     }
@@ -757,30 +780,23 @@ fun CameraScreen(
                     val rawBmp = withContext(Dispatchers.Default) {
                         PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees, lens.isFront)
                     }
-                    val time = ZonedDateTime.now()
                     val cfg = settings.snapshot()
-                    val d = stampDataFor(lens)
-                    val shotParams = ShotParams(
-                        focalMm = lens.equivFocalMm,
-                        aperture = lens.aperture,
-                        shutterNs = readout.exposureNs,
-                        iso = readout.iso,
-                        model = cfg.deviceBrand.ifBlank { null },
+                    val request = StampedCapture.Request(
+                        frame = rawBmp,
+                        config = cfg,
+                        data = stampDataFor(lens),
+                        time = ZonedDateTime.now(),
+                        lensLabel = lens.label,
+                        shotParams = shotParamsFor(lens, cfg),
+                        cropRatio = if (photoCrop) cam.photoAspect.ratio else null,
+                        prefix = "Frame",
+                        subFolder = sub,
+                        cameraJpeg = photo.jpeg,
                     )
-                    val frameUri = withContext(Dispatchers.Default) {
-                        val bmp = if (photoCrop) PhotoComposer.cropToAspect(rawBmp, cam.photoAspect.ratio) else rawBmp
-                        val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label, shotParams)
-                        val uri = PhotoSaver.save(context, stamped, d, time, cfg.number, d.locationSource ?: "none", prefix = "Frame", subFolder = sub)
-                        val thumbW = 240
-                        val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
-                        stamped.recycle()
-                        if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()
-                        if (rawBmp !== bmp && rawBmp !== stamped && !rawBmp.isRecycled) rawBmp.recycle()
-                        uri to thumb
-                    }
-                    lastUri = frameUri.first
+                    val frame = withContext(Dispatchers.Default) { StampedCapture.save(context, request) }
+                    lastUri = frame.uri
                     lastMime = "image/jpeg"
-                    lastThumb = frameUri.second
+                    lastThumb = frame.thumbnail
                     timelapseFrameCount++
                     settings.nextNumber = settings.nextNumber + 1
                     delay(cam.timelapseIntervalSec * 1000L)
@@ -1073,10 +1089,22 @@ fun CameraScreen(
                                 Modifier
                                     .size(7.dp)
                                     .clip(CircleShape)
-                                    .background(if (data.latitude != null) Color(0xFF4CAF50) else Color(0xFFFFB300))
+                                    .background(
+                                        when {
+                                            FixIssue.MOCK in fixIssues -> Color(0xFFE53935)
+                                            fixIssues.isNotEmpty() -> Color(0xFFFFB300)
+                                            else -> Color(0xFF4CAF50)
+                                        },
+                                    )
                             )
                             Text(
-                                text = if (data.latitude != null) String.format(Locale.US, "GPS ±%.0fm", data.accuracyM ?: 0f) else "GPS Searching…",
+                                text = when {
+                                    data.latitude == null -> "GPS Searching…"
+                                    FixIssue.MOCK in fixIssues -> "FAKE GPS"
+                                    FixIssue.STALE in fixIssues && fixAgeMs != null ->
+                                        String.format(Locale.US, "GPS ±%.0fm · %s old", data.accuracyM ?: 0f, FixCheck.formatAge(fixAgeMs))
+                                    else -> String.format(Locale.US, "GPS ±%.0fm", data.accuracyM ?: 0f)
+                                },
                                 color = if (data.latitude != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,

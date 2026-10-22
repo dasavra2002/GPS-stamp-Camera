@@ -9,12 +9,12 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import com.geostamp.camera.data.MapPosition
-import com.geostamp.camera.data.MapType
 import com.geostamp.camera.data.StampBackground
 import com.geostamp.camera.data.StampConfig
 import com.geostamp.camera.data.StampData
 import com.geostamp.camera.data.StampField
 import com.geostamp.camera.data.StampLanguage
+import com.geostamp.camera.data.TileSources
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -418,10 +418,7 @@ object WatermarkRenderer {
 
         // Required attribution for the free map tiles
         if (map != null) {
-            val attr = when (data.mapType) {
-                MapType.STREET -> "© OpenStreetMap"
-                else -> "© Esri"
-            }
+            val attr = TileSources.forType(data.mapType).attribution
             val ap = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.WHITE; textSize = 1.5f * u; textAlign = Paint.Align.RIGHT
                 setShadowLayer(0.3f * u, 0f, 0f, Color.BLACK)
