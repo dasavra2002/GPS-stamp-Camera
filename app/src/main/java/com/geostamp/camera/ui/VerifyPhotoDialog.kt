@@ -18,6 +18,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.GppBad
+import androidx.compose.material.icons.filled.GppMaybe
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -33,9 +37,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
 import com.geostamp.camera.location.FixCheck
@@ -78,6 +82,24 @@ fun VerifyPhotoDialog(onDismiss: () -> Unit) {
     LaunchedEffect(Unit) { picker.launch(arrayOf("image/jpeg")) }
 
     if (state == VerifyState.Picking) return
+    val shown = state
+    val verdictIcon: @Composable () -> Unit = {
+        val authentic = (shown as? VerifyState.Done)?.check?.authentic
+        Icon(
+            when (authentic) {
+                true -> Icons.Filled.VerifiedUser
+                false -> Icons.Filled.GppBad
+                null -> Icons.Filled.GppMaybe
+            },
+            contentDescription = null,
+            tint = when (authentic) {
+                true -> MaterialTheme.colorScheme.tertiary
+                false -> MaterialTheme.colorScheme.error
+                null -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(40.dp),
+        )
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
@@ -86,13 +108,15 @@ fun VerifyPhotoDialog(onDismiss: () -> Unit) {
                 TextButton(onClick = { picker.launch(arrayOf("image/jpeg")) }) { Text("Check another") }
             }
         },
+        icon = if (state is VerifyState.Done || state == VerifyState.NoProof) verdictIcon else null,
         title = {
             Text(
                 when (val s = state) {
                     is VerifyState.Done -> if (s.check.authentic) "Authentic GeoStamp photo" else "Could not verify"
                     VerifyState.NoProof -> "No GeoStamp proof"
-                    else -> "Checking photo..."
+                    else -> "Checking photo…"
                 },
+                textAlign = TextAlign.Center,
             )
         },
         text = {
@@ -137,7 +161,7 @@ private fun ProofDetails(c: ProofCheck) {
         c.verifiedBoot?.let {
             CheckRow(it, "Phone not modified", "Bootloader locked and system verified at boot.", "Bootloader unlocked or system modified (rooted phones can fake GPS).")
         }
-        Spacer(Modifier.size(4.dp))
+        HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
         Detail("Time", p.time)
         if (p.latitude != null && p.longitude != null) {
             Detail("Location", String.format(Locale.US, "%.6f, %.6f", p.latitude, p.longitude))
@@ -153,7 +177,7 @@ private fun ProofDetails(c: ProofCheck) {
 @Composable
 private fun CheckRow(ok: Boolean?, title: String, good: String, bad: String) {
     val (icon, tint) = when (ok) {
-        true -> Icons.Filled.CheckCircle to Color(0xFF2E7D32)
+        true -> Icons.Filled.CheckCircle to MaterialTheme.colorScheme.tertiary
         false -> Icons.Filled.Error to MaterialTheme.colorScheme.error
         null -> Icons.AutoMirrored.Filled.Help to MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -169,9 +193,9 @@ private fun CheckRow(ok: Boolean?, title: String, good: String, bad: String) {
 
 @Composable
 private fun Detail(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(start = 28.dp)) {
+    Row(Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(110.dp))
-        Text(value, style = MaterialTheme.typography.bodySmall)
+        Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
