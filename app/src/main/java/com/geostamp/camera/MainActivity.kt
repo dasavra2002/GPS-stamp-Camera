@@ -117,10 +117,7 @@ class MainActivity : ComponentActivity() {
 
     private fun showApp() {
         setContent {
-            GeoStampTheme(
-                darkTheme = true,
-                dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
-            ) {
+            GeoStampTheme(darkTheme = true) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,

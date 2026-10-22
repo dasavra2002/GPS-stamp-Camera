@@ -22,6 +22,36 @@ import androidx.camera.core.ZoomState
 import androidx.camera.video.Recording
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.BurstMode
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.HdrOn
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.NightsStay
+import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Portrait
+import androidx.compose.material.icons.filled.RawOn
+import androidx.compose.material.icons.filled.SlowMotionVideo
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.geostamp.camera.ui.theme.CameraColors
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -469,6 +499,8 @@ fun CameraScreen(
     val nativeRatio = bind?.nativeRatio ?: (4f / 3f)
     val photoCrop = !mode.isVideo && cam.photoAspect.cropped && bind?.format != PhotoFormat.RAW
     val frameLongShort = if (photoCrop) cam.photoAspect.ratio else nativeRatio
+    // Height of the floating top bar in landscape, so overlays below it line up with its edge.
+    val landscapeTopInset = if (showToolsBar) 104.dp else 60.dp
     val activeNativeRatio = if (isLandscape) nativeRatio else (1f / nativeRatio)
     val activeFrameRatio = if (isLandscape) frameLongShort else (1f / frameLongShort)
 
@@ -1008,43 +1040,95 @@ fun CameraScreen(
     @Composable
     fun TopBarContent(isLandscape: Boolean) {
         Column(Modifier.fillMaxWidth()) {
-            // Tier 1: Fixed primary action bar with guaranteed settings visibility
+            // Tier 1: flash · GPS status · pro, tools, settings
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // Left controls: Flash toggle & Grid Guide toggle
+                if (mode == CaptureMode.PHOTO) {
+                    CameraIconButton(
+                        icon = when (flash) {
+                            ImageCapture.FLASH_MODE_AUTO -> Icons.Filled.FlashAuto
+                            ImageCapture.FLASH_MODE_ON -> Icons.Filled.FlashOn
+                            else -> Icons.Filled.FlashOff
+                        },
+                        contentDescription = "Flash",
+                        active = flash != ImageCapture.FLASH_MODE_OFF,
+                        onClick = {
+                            flash = when (flash) {
+                                ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
+                                ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
+                                else -> ImageCapture.FLASH_MODE_OFF
+                            }
+                            controller.flashMode = flash
+                        },
+                    )
+                }
+                // GPS status, weighted so it never crowds out the action buttons
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    CameraPill(
+                        text = when {
+                            data.latitude == null -> "Searching GPS…"
+                            FixIssue.MOCK in fixIssues -> "Fake GPS"
+                            FixIssue.STALE in fixIssues && fixAgeMs != null ->
+                                String.format(Locale.US, "±%.0f m · %s old", data.accuracyM ?: 0f, FixCheck.formatAge(fixAgeMs))
+                            else -> String.format(Locale.US, "GPS ±%.0f m", data.accuracyM ?: 0f)
+                        },
+                        dotColor = when {
+                            data.latitude == null -> CameraColors.OnScrimDisabled
+                            FixIssue.MOCK in fixIssues -> CameraColors.BadFix
+                            fixIssues.isNotEmpty() -> CameraColors.WeakFix
+                            else -> CameraColors.GoodFix
+                        },
+                        contentColor = if (data.latitude != null) CameraColors.OnScrim else CameraColors.OnScrimMuted,
+                        onClick = {
+                            repo.refreshAll()
+                            Toast.makeText(context, "Refreshing location", Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                }
+
+                CameraChip(
+                    text = "PRO",
+                    on = showProBar,
+                    enabled = true,
+                    onClick = {
+                        showProBar = !showProBar
+                        if (!showProBar) openPanel = null
+                    },
+                )
+                CameraIconButton(
+                    icon = Icons.Filled.Tune,
+                    contentDescription = "Quick tools",
+                    active = showToolsBar,
+                    onClick = { showToolsBar = !showToolsBar },
+                )
+                CameraIconButton(
+                    icon = Icons.Filled.Settings,
+                    contentDescription = "Settings",
+                    enabled = !isRecording,
+                    onClick = onOpenSettings,
+                )
+            }
+
+            // Tier 2: horizontally scrollable quick tools (shown when showToolsBar is on)
+            if (showToolsBar) {
                 Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (mode == CaptureMode.PHOTO) {
-                        IconButton(
-                            onClick = {
-                                flash = when (flash) {
-                                    ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
-                                    ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
-                                    else -> ImageCapture.FLASH_MODE_OFF
-                                }
-                                controller.flashMode = flash
-                            },
-                            modifier = Modifier.size(38.dp),
-                        ) {
-                            Icon(
-                                when (flash) {
-                                    ImageCapture.FLASH_MODE_AUTO -> Icons.Filled.FlashAuto
-                                    ImageCapture.FLASH_MODE_ON -> Icons.Filled.FlashOn
-                                    else -> Icons.Filled.FlashOff
-                                },
-                                contentDescription = "Flash",
-                                tint = if (flash != ImageCapture.FLASH_MODE_OFF) MaterialTheme.colorScheme.primary else Color.White,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    }
-                    IconButton(
+                    CameraChip(
+                        text = if (cam.grid == GridType.OFF) "Grid" else cam.grid.label,
+                        on = cam.grid != GridType.OFF,
+                        enabled = true,
+                        icon = if (cam.grid != GridType.OFF) Icons.Filled.GridOn else Icons.Filled.GridOff,
                         onClick = {
                             cam.grid = when (cam.grid) {
                                 GridType.OFF -> GridType.THIRDS
@@ -1053,192 +1137,104 @@ fun CameraScreen(
                                 GridType.BOTH -> GridType.OFF
                             }
                         },
-                        modifier = Modifier.size(38.dp),
-                    ) {
-                        Icon(
-                            if (cam.grid != GridType.OFF) Icons.Filled.GridOn else Icons.Filled.GridOff,
-                            contentDescription = "Grid Guides",
-                            tint = if (cam.grid != GridType.OFF) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-
-                // Center: GPS Status Pill (weighted so it never crowds out action buttons)
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (data.latitude != null) MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                        border = BorderStroke(1.dp, if (data.latitude != null) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f) else Color.Transparent),
-                        modifier = Modifier.clickable {
-                            repo.refreshAll()
-                            Toast.makeText(context, "GPS location updated", Toast.LENGTH_SHORT).show()
-                        },
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        when {
-                                            FixIssue.MOCK in fixIssues -> Color(0xFFE53935)
-                                            fixIssues.isNotEmpty() -> Color(0xFFFFB300)
-                                            else -> Color(0xFF4CAF50)
-                                        },
-                                    )
-                            )
-                            Text(
-                                text = when {
-                                    data.latitude == null -> "GPS Searching…"
-                                    FixIssue.MOCK in fixIssues -> "FAKE GPS"
-                                    FixIssue.STALE in fixIssues && fixAgeMs != null ->
-                                        String.format(Locale.US, "GPS ±%.0fm · %s old", data.accuracyM ?: 0f, FixCheck.formatAge(fixAgeMs))
-                                    else -> String.format(Locale.US, "GPS ±%.0fm", data.accuracyM ?: 0f)
-                                },
-                                color = if (data.latitude != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                    )
+                    val hdrSupported = if (mode == CaptureMode.PHOTO) caps.hdrPhoto else caps.videoColors.size > 1
+                    val hdrOn = bind?.hdrLabel != null
+                    CameraChip("HDR", hdrOn, hdrSupported && !isRecording, icon = Icons.Filled.HdrOn, onClick = {
+                        if (mode == CaptureMode.PHOTO) cam.hdrPhoto = !cam.hdrPhoto
+                        else cam.videoColor = if (cam.videoColor != VideoColor.SDR) VideoColor.SDR
+                        else caps.videoColors.firstOrNull { it != VideoColor.SDR } ?: VideoColor.SDR
+                    })
+                    if (mode == CaptureMode.PHOTO) {
+                        CameraChip("RAW", bind?.format != null && bind?.format != PhotoFormat.JPEG, caps.anyRaw, icon = Icons.Filled.RawOn, onClick = {
+                            cam.photoFormat = if (cam.photoFormat == PhotoFormat.JPEG) {
+                                if (caps.rawJpeg) PhotoFormat.RAW_JPEG else PhotoFormat.RAW
+                            } else PhotoFormat.JPEG
+                        })
+                        if (caps.nightExtension) {
+                            CameraChip("Night", cam.photoExtension == ExtensionModeType.NIGHT, !isRecording, icon = Icons.Filled.NightsStay, onClick = {
+                                cam.photoExtension = if (cam.photoExtension == ExtensionModeType.NIGHT) ExtensionModeType.NONE else ExtensionModeType.NIGHT
+                            })
                         }
+                        if (caps.bokehExtension) {
+                            CameraChip("Portrait", cam.photoExtension == ExtensionModeType.BOKEH, !isRecording, icon = Icons.Filled.Portrait, onClick = {
+                                cam.photoExtension = if (cam.photoExtension == ExtensionModeType.BOKEH) ExtensionModeType.NONE else ExtensionModeType.BOKEH
+                            })
+                        }
+                        CameraChip("Punch in", cam.attendanceMode, !isRecording, icon = Icons.Filled.Badge, onClick = {
+                            toggleAttendanceMode()
+                        })
+                        CameraChip("PiP", cam.pipMode, lenses.size > 1 && !isRecording, icon = Icons.Filled.PictureInPicture, onClick = {
+                            cam.pipMode = !cam.pipMode
+                        })
+                        CameraChip("Document", cam.documentMode, !isRecording, icon = Icons.Filled.Description, onClick = {
+                            cam.documentMode = !cam.documentMode
+                        })
                     }
-                }
-
-                // Right controls: PRO toggle, TOOLS toggle, and ALWAYS VISIBLE Settings Button
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    // Pro manual toggle pill
-                    Surface(
-                        shape = CircleShape,
-                        color = if (showProBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f),
-                        border = BorderStroke(1.dp, if (showProBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                        modifier = Modifier.clickable {
-                            showProBar = !showProBar
-                            if (!showProBar) openPanel = null
-                        },
-                    ) {
-                        Text(
-                            "PRO",
-                            color = if (showProBar) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
-                    }
-
-                    // Quick tools toggle button
-                    IconButton(
-                        onClick = { showToolsBar = !showToolsBar },
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.Tune,
-                            contentDescription = "Quick Tools",
-                            tint = if (showToolsBar) MaterialTheme.colorScheme.primary else Color.White,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-
-                    // Prominent, guaranteed Material 3 Settings Button
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        shadowElevation = 3.dp,
-                        modifier = Modifier.size(38.dp),
-                    ) {
-                        IconButton(
-                            onClick = onOpenSettings,
-                            enabled = !isRecording,
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            Icon(
-                                Icons.Filled.Settings,
-                                contentDescription = "Settings",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(20.dp),
-                            )
+                    if (!mode.isVideo) {
+                        CameraChip("Voice note", false, !isRecording && !busy, icon = Icons.Filled.Mic, onClick = {
+                            startVoiceNote()
+                        })
+                        CameraChip("Scan QR", false, !isRecording && !busy, icon = Icons.Filled.QrCodeScanner, onClick = {
+                            scanBarcode()
+                        })
+                        CameraChip("Read sign", false, !isRecording && !busy, icon = Icons.Filled.TextFields, onClick = {
+                            scanSignboardText()
+                        })
+                        CameraChip("AI caption", false, !isRecording && !busy, icon = Icons.Filled.AutoAwesome, onClick = {
+                            autoCaptionScene()
+                        })
+                        if (lastThumb != null) {
+                            CameraChip("Ghost", showGhostOverlay, true, icon = Icons.Filled.Layers, onClick = {
+                                showGhostOverlay = !showGhostOverlay
+                            })
                         }
                     }
                 }
             }
+        }
+    }
 
-            // Tier 2: Horizontally scrollable quick-controls strip (shown when showToolsBar is ON)
-            if (showToolsBar) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    val hdrSupported = if (mode == CaptureMode.PHOTO) caps.hdrPhoto else caps.videoColors.size > 1
-                    val hdrOn = bind?.hdrLabel != null
-                    QuickChip("HDR", hdrOn, hdrSupported && !isRecording) {
-                        if (mode == CaptureMode.PHOTO) cam.hdrPhoto = !cam.hdrPhoto
-                        else cam.videoColor = if (cam.videoColor != VideoColor.SDR) VideoColor.SDR
-                        else caps.videoColors.firstOrNull { it != VideoColor.SDR } ?: VideoColor.SDR
-                    }
-                    if (mode == CaptureMode.PHOTO) {
-                        QuickChip("RAW", bind?.format != null && bind?.format != PhotoFormat.JPEG, caps.anyRaw) {
-                            cam.photoFormat = if (cam.photoFormat == PhotoFormat.JPEG) {
-                                if (caps.rawJpeg) PhotoFormat.RAW_JPEG else PhotoFormat.RAW
-                            } else PhotoFormat.JPEG
-                        }
-                        if (caps.nightExtension) {
-                            QuickChip("🌙 Night", cam.photoExtension == ExtensionModeType.NIGHT, !isRecording) {
-                                cam.photoExtension = if (cam.photoExtension == ExtensionModeType.NIGHT) ExtensionModeType.NONE else ExtensionModeType.NIGHT
-                            }
-                        }
-                        if (caps.bokehExtension) {
-                            QuickChip("👤 Portrait", cam.photoExtension == ExtensionModeType.BOKEH, !isRecording) {
-                                cam.photoExtension = if (cam.photoExtension == ExtensionModeType.BOKEH) ExtensionModeType.NONE else ExtensionModeType.BOKEH
-                            }
-                        }
-                        QuickChip("Punch In", cam.attendanceMode, !isRecording) {
-                            toggleAttendanceMode()
-                        }
-                        QuickChip("PiP", cam.pipMode, lenses.size > 1 && !isRecording) {
-                            cam.pipMode = !cam.pipMode
-                        }
-                        QuickChip("DOC", cam.documentMode, !isRecording) {
-                            cam.documentMode = !cam.documentMode
-                        }
-                    }
-                    if (!mode.isVideo) {
-                        QuickChip("🎙 Voice", false, !isRecording && !busy) {
-                            startVoiceNote()
-                        }
-                        QuickChip("🔲 QR", false, !isRecording && !busy) {
-                            scanBarcode()
-                        }
-                        QuickChip("📄 OCR", false, !isRecording && !busy) {
-                            scanSignboardText()
-                        }
-                        QuickChip("✨ AI Caption", false, !isRecording && !busy) {
-                            autoCaptionScene()
-                        }
-                        if (lastThumb != null) {
-                            QuickChip("👻 Ghost", showGhostOverlay, true) {
-                                showGhostOverlay = !showGhostOverlay
-                            }
-                        }
-                    }
-                }
+    @Composable
+    fun GeofenceBanner(
+        text: String,
+        icon: androidx.compose.ui.graphics.vector.ImageVector,
+        container: Color,
+        content: Color,
+        action: String? = null,
+        actionColor: Color = MaterialTheme.colorScheme.primary,
+        onAction: (() -> Unit)? = null,
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(container)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(16.dp))
+            Text(
+                text,
+                color = content,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (action != null) {
+                Text(
+                    action,
+                    color = actionColor,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = if (onAction != null) {
+                        Modifier
+                            .clip(CircleShape)
+                            .clickable(onClick = onAction)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    } else Modifier,
+                )
             }
         }
     }
@@ -1251,140 +1247,80 @@ fun CameraScreen(
         val nearestSitePair = remember(currentLat, currentLon, geoMgr.sites.size) {
             geoMgr.findNearestSite(currentLat, currentLon)
         }
+        val pinHere = {
+            if (currentLat != null && currentLon != null) {
+                settings.siteLat = currentLat
+                settings.siteLon = currentLon
+                Toast.makeText(context, "Site pin set to current location", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         if (isLandscape) {
-            val topPad = if (showToolsBar) 92.dp else 50.dp
             Box(
                 Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(top = topPad),
+                    .padding(top = landscapeTopInset + 4.dp),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 if (activeSitePair != null) {
-                    val site = activeSitePair.first
-                    val dist = activeSitePair.second
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xD91B5E20),
-                        border = BorderStroke(1.dp, Color(0xFFA5D6A7).copy(alpha = 0.5f)),
-                    ) {
-                        Text(
-                            text = "✅ ${site.name} (${dist.toInt()}m)",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                        )
-                    }
+                    val (site, dist) = activeSitePair
+                    CameraPill(
+                        text = "${site.name} · ${dist.toInt()} m",
+                        icon = Icons.Filled.CheckCircle,
+                        iconTint = CameraColors.InsideFenceAccent,
+                        container = CameraColors.InsideFence,
+                    )
                 } else if (nearestSitePair != null) {
-                    val site = nearestSitePair.first
-                    val dist = nearestSitePair.second
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                    ) {
-                        Text(
-                            text = "⚠️ Outside ${site.name} (${dist.toInt()}m)",
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                        )
-                    }
+                    val (site, dist) = nearestSitePair
+                    CameraPill(
+                        text = "Outside ${site.name} · ${dist.toInt()} m",
+                        icon = Icons.Filled.Warning,
+                        iconTint = MaterialTheme.colorScheme.onErrorContainer,
+                        container = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    )
                 }
             }
         } else {
             if (activeSitePair != null) {
-                val site = activeSitePair.first
-                val dist = activeSitePair.second
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xD91B5E20))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "✅ In Geofence: ${site.name} (${dist.toInt()}m)",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = "AUTO-TAGGED",
-                        color = Color(0xFFA5D6A7),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                val (site, dist) = activeSitePair
+                GeofenceBanner(
+                    text = "In ${site.name} · ${dist.toInt()} m",
+                    icon = Icons.Filled.CheckCircle,
+                    container = CameraColors.InsideFence,
+                    content = CameraColors.OnScrim,
+                    action = "AUTO-TAGGED",
+                    actionColor = CameraColors.InsideFenceAccent,
+                )
             } else if (nearestSitePair != null) {
-                val site = nearestSitePair.first
-                val dist = nearestSitePair.second
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "⚠️ Outside ${site.name}: ${dist.toInt()}m (Limit ${site.radiusMeters.toInt()}m)",
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
+                val (site, dist) = nearestSitePair
+                GeofenceBanner(
+                    text = "Outside ${site.name} · ${dist.toInt()} m (limit ${site.radiusMeters.toInt()} m)",
+                    icon = Icons.Filled.Warning,
+                    container = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
+                    content = MaterialTheme.colorScheme.onErrorContainer,
+                )
             } else if (geofenceDistanceM != null) {
                 val outside = geofenceDistanceM > siteRadius
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(if (outside) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f) else Color(0x991B5E20))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = if (outside) "⚠️ Outside ${siteName.ifBlank { "Site" }}: ${geofenceDistanceM.toInt()}m (Limit ${siteRadius.toInt()}m)"
-                        else "✅ In Site Geofence (${geofenceDistanceM.toInt()}m)",
-                        color = if (outside) MaterialTheme.colorScheme.onErrorContainer else Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Text(
-                        text = "PIN HERE",
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable {
-                            if (currentLat != null && currentLon != null) {
-                                settings.siteLat = currentLat
-                                settings.siteLon = currentLon
-                                Toast.makeText(context, "Site pin set to current location", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    )
-                }
+                GeofenceBanner(
+                    text = if (outside) "Outside ${siteName.ifBlank { "site" }} · ${geofenceDistanceM.toInt()} m (limit ${siteRadius.toInt()} m)"
+                    else "In site geofence · ${geofenceDistanceM.toInt()} m",
+                    icon = if (outside) Icons.Filled.Warning else Icons.Filled.CheckCircle,
+                    container = if (outside) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f) else CameraColors.InsideFence,
+                    content = if (outside) MaterialTheme.colorScheme.onErrorContainer else CameraColors.OnScrim,
+                    action = "PIN HERE",
+                    onAction = pinHere,
+                )
             } else if (settings.siteName.isNotBlank() && currentLat != null && currentLon != null && settings.siteLat == null) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("📍 Site: ${settings.siteName} (No pin)", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium)
-                    Text("SET PIN", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
-                        settings.siteLat = currentLat
-                        settings.siteLon = currentLon
-                        Toast.makeText(context, "Site pin set to current location", Toast.LENGTH_SHORT).show()
-                    })
-                }
+                GeofenceBanner(
+                    text = "Site: ${settings.siteName} (no pin)",
+                    icon = Icons.Filled.Place,
+                    container = CameraColors.ScrimStrong,
+                    content = CameraColors.OnScrim,
+                    action = "SET PIN",
+                    onAction = pinHere,
+                )
             }
         }
     }
@@ -1465,17 +1401,14 @@ fun CameraScreen(
                     Modifier
                         .fillMaxSize()
                         .padding(28.dp)
-                        .border(2.dp, Color(0xFF81C784), RoundedCornerShape(12.dp)),
+                        .border(2.dp, CameraColors.DocumentGuide, MaterialTheme.shapes.medium),
                     contentAlignment = Alignment.TopCenter,
                 ) {
-                    Text(
-                        "📄 ALIGN RECEIPT / DOCUMENT",
-                        color = Color(0xFF81C784),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .background(Color(0x99000000), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    CameraPill(
+                        text = "Align document inside the frame",
+                        icon = Icons.Filled.Description,
+                        iconTint = CameraColors.DocumentGuide,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
             }
@@ -1540,56 +1473,44 @@ fun CameraScreen(
                     histogram,
                     Modifier
                         .align(Alignment.TopStart)
-                        .padding(start = if (isLandscape) 12.dp else 8.dp, top = if (isLandscape) 56.dp else 8.dp),
+                        .padding(start = if (isLandscape) 12.dp else 8.dp, top = if (isLandscape) landscapeTopInset + 8.dp else 8.dp),
                 )
             }
             if (isRecording) {
                 Row(
                     Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = if (isLandscape) 54.dp else 8.dp),
+                        .padding(top = if (isLandscape) landscapeTopInset + 8.dp else 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     RecTimer(recSeconds)
                     if (cam.allowVideoTagging) {
-                        QuickChip("🏷 Tag (${taggedMoments.size})", on = true, enabled = true) {
+                        CameraChip("Tag (${taggedMoments.size})", on = true, enabled = true, icon = Icons.Filled.BookmarkAdd, onClick = {
                             taggedMoments.add(recSeconds)
                             Toast.makeText(context, "Tag marked at ${recSeconds}s", Toast.LENGTH_SHORT).show()
-                        }
+                        })
                     }
                 }
             }
             if (isTimelapseActive) {
-                Row(
-                    Modifier
+                CameraPill(
+                    text = "Time-lapse · frame $timelapseFrameCount · every ${cam.timelapseIntervalSec}s",
+                    dotColor = CameraColors.Recording,
+                    container = CameraColors.ScrimStrong,
+                    modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = if (isLandscape) 54.dp else 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xCC000000))
-                        .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFE53935)))
-                    Text(
-                        "TIMELAPSE REC · Frame #$timelapseFrameCount (${cam.timelapseIntervalSec}s)",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                        .padding(top = if (isLandscape) landscapeTopInset + 8.dp else 8.dp),
+                )
             }
             if (mode == CaptureMode.VIDEO && bind?.ok == true && bind?.stampOnVideo == false) {
-                Text(
-                    "Stamp not burned into video on this phone",
-                    color = Color.White, fontSize = 11.sp,
+                CameraPill(
+                    text = "No stamp on video",
+                    icon = Icons.Filled.Info,
+                    container = CameraColors.ErrorScrim,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .background(Color(0x99B71C1C), RoundedCornerShape(4.dp))
-                        .padding(4.dp),
+                        .padding(8.dp),
                 )
             }
 
@@ -1597,25 +1518,25 @@ fun CameraScreen(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Color(0x77000000)),
+                        .background(CameraColors.Scrim),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             "$timerCountdown",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 96.sp,
-                            fontWeight = FontWeight.Black,
+                            color = CameraColors.OnScrim,
+                            style = MaterialTheme.typography.displayLarge,
+                            fontSize = 112.sp,
+                            fontWeight = FontWeight.Light,
                         )
-                        Spacer(Modifier.height(16.dp))
-                        Button(
+                        Spacer(Modifier.height(24.dp))
+                        FilledTonalButton(
                             onClick = {
                                 timerJob?.cancel()
                                 timerCountdown = null
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
                         ) {
-                            Text("Cancel", color = Color.White)
+                            Text("Cancel")
                         }
                     }
                 }
@@ -1625,193 +1546,252 @@ fun CameraScreen(
                 Column(
                     Modifier
                         .align(Alignment.Center)
-                        .background(Color(0xAA000000), RoundedCornerShape(12.dp))
-                        .padding(16.dp),
+                        .background(CameraColors.ScrimStrong, MaterialTheme.shapes.large)
+                        .padding(horizontal = 24.dp, vertical = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    CircularProgressIndicator(color = Color.White)
-                    Spacer(Modifier.height(8.dp))
-                    Text(busyText, color = Color.White)
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp, modifier = Modifier.size(36.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text(busyText, color = CameraColors.OnScrim, style = MaterialTheme.typography.bodyMedium)
                 }
             }
             error?.let {
                 Text(
-                    it, color = Color.White,
+                    it,
+                    color = CameraColors.OnScrim,
+                    style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .background(Color(0xCCB71C1C), RoundedCornerShape(8.dp))
-                        .padding(12.dp),
+                        .padding(24.dp)
+                        .background(CameraColors.ErrorScrim, MaterialTheme.shapes.medium)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                 )
             }
+        }
+    }
+
+    @Composable
+    fun LensOrZoomSelector(allowZoomPresets: Boolean = true) {
+        if (lenses.size > 1) {
+            CameraSegmented(
+                labels = lenses.map { it.shortLabel },
+                selected = selected,
+                onSelect = { selected = it },
+                enabled = !busy && !isRecording,
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            )
+        } else if (allowZoomPresets && zoomMax > 1.01f && openPanel == null) {
+            val presets = (listOf(zoomMin) + listOf(1f, 2f, 3f, 5f, 10f))
+                .filter { it in zoomMin..zoomMax }
+                .distinctBy { (it * 10).toInt() }
+            CameraSegmented(
+                labels = presets.map { z -> if (z < 1f) String.format(Locale.US, "%.1f×", z) else "${z.toInt()}×" },
+                selected = presets.indexOfFirst { kotlin.math.abs(zoomNow - it) < 0.05f },
+                onSelect = { controller.setZoomRatio(presets[it]) },
+            )
+        }
+    }
+
+    @OptIn(ExperimentalFoundationApi::class)
+    @Composable
+    fun LastCaptureThumb(size: androidx.compose.ui.unit.Dp, showShareButton: Boolean) {
+        var shareMenu by remember { mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                Modifier
+                    .size(size)
+                    .clip(MaterialTheme.shapes.medium)
+                    .border(1.5.dp, CameraColors.ScrimBorder, MaterialTheme.shapes.medium)
+                    .background(CameraColors.Scrim)
+                    .combinedClickable(
+                        enabled = lastUri != null && !isRecording,
+                        onClick = {
+                            lastUri?.let { uri ->
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(uri, lastMime)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                runCatching { context.startActivity(intent) }
+                            }
+                        },
+                        onLongClick = { if (!isTimelapseActive) shareMenu = true },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                val t = lastThumb
+                if (t != null) {
+                    Image(t.asImageBitmap(), "Last capture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else if (lastUri != null) {
+                    Icon(
+                        if (lastMime.startsWith("video")) Icons.Filled.Videocam else Icons.Filled.Photo,
+                        contentDescription = "Last capture",
+                        tint = CameraColors.OnScrimMuted,
+                    )
+                } else {
+                    Icon(Icons.Filled.PhotoLibrary, contentDescription = null, tint = CameraColors.OnScrimDisabled, modifier = Modifier.size(22.dp))
+                }
+            }
+            if (showShareButton && lastUri != null && !isRecording && !isTimelapseActive) {
+                CameraIconButton(
+                    icon = Icons.Filled.Share,
+                    contentDescription = "Share last capture",
+                    onClick = { shareMenu = true },
+                    size = 40.dp,
+                    iconSize = 20.dp,
+                )
+            }
+            DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Share to WhatsApp") },
+                    leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                    onClick = {
+                        shareMenu = false
+                        shareLastToWhatsApp()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Upload to Google Drive") },
+                    leadingIcon = { Icon(Icons.Filled.CloudUpload, contentDescription = null) },
+                    onClick = {
+                        shareMenu = false
+                        uploadLastToGoogleDrive()
+                    },
+                )
+            }
+        }
+    }
+
+    @Composable
+    fun SnapshotButton(size: androidx.compose.ui.unit.Dp) {
+        CameraIconButton(
+            icon = Icons.Filled.CameraAlt,
+            contentDescription = "Take snapshot",
+            enabled = !busy,
+            onClick = { takeVideoSnapshot() },
+            size = size,
+        )
+    }
+
+    @Composable
+    fun FlipButton(size: androidx.compose.ui.unit.Dp) {
+        CameraIconButton(
+            icon = Icons.Filled.Cameraswitch,
+            contentDescription = "Flip camera",
+            enabled = !busy && !isRecording && lenses.size > 1,
+            onClick = { flipCamera() },
+            size = size,
+            iconSize = 24.dp,
+        )
+    }
+
+    /** Mode-specific cyclers (timer and burst, time-lapse interval, slow-mo speed). */
+    @Composable
+    fun ModeOptionChips() {
+        when (mode) {
+            CaptureMode.PHOTO -> {
+                CameraChip(
+                    text = if (cam.timerSeconds > 0) "${cam.timerSeconds}s" else "Off",
+                    on = cam.timerSeconds > 0,
+                    enabled = !isRecording && !busy,
+                    icon = Icons.Filled.Timer,
+                    onClick = {
+                        cam.timerSeconds = when (cam.timerSeconds) {
+                            0 -> 3
+                            3 -> 5
+                            5 -> 10
+                            else -> 0
+                        }
+                    },
+                )
+                CameraChip(
+                    text = "${cam.burstCount}×",
+                    on = cam.burstCount > 1,
+                    enabled = !isRecording && !busy,
+                    icon = Icons.Filled.BurstMode,
+                    onClick = {
+                        cam.burstCount = when (cam.burstCount) {
+                            1 -> 3
+                            3 -> 5
+                            else -> 1
+                        }
+                    },
+                )
+            }
+            CaptureMode.TIMELAPSE -> {
+                CameraChip("Every ${cam.timelapseIntervalSec}s", true, !isTimelapseActive, icon = Icons.Filled.Timer, onClick = {
+                    cam.timelapseIntervalSec = when (cam.timelapseIntervalSec) {
+                        1 -> 2
+                        2 -> 5
+                        5 -> 10
+                        10 -> 30
+                        else -> 1
+                    }
+                })
+            }
+            CaptureMode.SLOW_MO -> {
+                CameraChip(cam.slowMoSpeed.label, true, !isRecording, icon = Icons.Filled.SlowMotionVideo, onClick = {
+                    cam.slowMoSpeed = when (cam.slowMoSpeed) {
+                        SlowMoSpeed.X2 -> SlowMoSpeed.X4
+                        SlowMoSpeed.X4 -> SlowMoSpeed.X8
+                        SlowMoSpeed.X8 -> SlowMoSpeed.X2
+                    }
+                })
+            }
+            CaptureMode.VIDEO -> Unit
         }
     }
 
     @Composable
     fun PortraitBottomDeck() {
         Column(
-            Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Floating lens switcher or zoom presets capsule (unified)
-            if (lenses.size > 1) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    modifier = Modifier.padding(vertical = 4.dp),
-                ) {
-                Row(
-                    modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    lenses.forEachIndexed { i, lens ->
-                        val active = i == selected
-                        Surface(
-                            shape = CircleShape,
-                            color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
-                            modifier = Modifier.clickable(enabled = !busy && !isRecording) { selected = i },
-                        ) {
-                            Text(
-                                text = lens.shortLabel,
-                                color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            )
-                        }
-                    }
-                }
-            }
-        } else if (zoomMax > 1.01f && openPanel == null) {
-            val presets = (listOf(zoomMin) + listOf(1f, 2f, 3f, 5f, 10f))
-                .filter { it in zoomMin..zoomMax }
-                .distinctBy { (it * 10).toInt() }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                presets.forEach { z ->
-                    val active = kotlin.math.abs(zoomNow - z) < 0.05f
-                    Surface(
-                        shape = CircleShape,
-                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
-                        border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .clickable { controller.setZoomRatio(z) },
-                    ) {
-                        Text(
-                            text = if (z < 1f) String.format(Locale.US, "%.1fx", z) else "${z.toInt()}x",
-                            color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        // Capture mode selector (Material 3 segmented pill)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.65f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-            ) {
-                Row(
-                    Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CaptureMode.entries.forEach { m ->
-                        val active = mode == m
-                        Surface(
-                            shape = CircleShape,
-                            color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            modifier = Modifier
-                                .clickable(enabled = !busy && !isRecording) {
-                                    mode = m
-                                    openPanel = null
-                                }
-                                .padding(horizontal = 2.dp),
-                        ) {
-                            Text(
-                                text = m.name,
-                                color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Shutter and Action Row
-        Row(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(top = 8.dp, bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Left: Thumbnail preview & quick share
+            // Lens or zoom presets, with the mode's quick options beside them
             Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             ) {
-                Box(
-                    Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .border(2.dp, Color(0x55FFFFFF), RoundedCornerShape(14.dp))
-                        .background(Color(0x33FFFFFF))
-                        .clickable(enabled = lastUri != null && !isRecording) {
-                            lastUri?.let { uri ->
-                                val intent = Intent(Intent.ACTION_VIEW)
-                                    .setDataAndType(uri, lastMime)
-                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                runCatching { context.startActivity(intent) }
-                            }
+                LensOrZoomSelector()
+                ModeOptionChips()
+            }
+
+            // Capture mode switcher
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                CaptureMode.entries.forEach { m ->
+                    CameraModeLabel(
+                        text = m.displayName,
+                        active = mode == m,
+                        enabled = !busy && !isRecording,
+                        onClick = {
+                            mode = m
+                            openPanel = null
                         },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val t = lastThumb
-                    if (t != null) {
-                        Image(t.asImageBitmap(), "Last capture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                    } else if (lastUri != null) {
-                        Text(if (lastMime.startsWith("video")) "VID" else "RAW", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                    }
-                }
-                if (lastUri != null && !isRecording && !isTimelapseActive) {
-                    IconButton(onClick = { shareLastToWhatsApp() }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Filled.Share, "Share via WhatsApp", tint = Color(0xFF25D366), modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { uploadLastToGoogleDrive() }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Filled.CloudUpload, "Upload to Google Drive", tint = Color(0xFF4285F4), modifier = Modifier.size(20.dp))
-                    }
+                    )
                 }
             }
 
-            // Center: Dual-Ring Shutter Button + Snapshot button
+            // Thumbnail · shutter · flip, in equal slots so the shutter stays centered
             Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    LastCaptureThumb(56.dp, showShareButton = true)
+                }
                 ShutterButton(
                     mode = mode,
                     busy = busy,
@@ -1823,174 +1803,47 @@ fun CameraScreen(
                     onVideoClick = { toggleRecording() },
                     onTimelapseClick = { toggleTimelapse() },
                 )
-                if (isRecording) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0x55FFFFFF),
-                        border = BorderStroke(2.dp, Color.White),
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        IconButton(onClick = { takeVideoSnapshot() }, enabled = !busy, modifier = Modifier.fillMaxSize()) {
-                            Icon(Icons.Filled.CameraAlt, contentDescription = "Take Snapshot", tint = Color.White, modifier = Modifier.size(24.dp))
-                        }
-                    }
-                }
-            }
-
-            // Right: Camera Switch (Flip) & Timer/Burst chips
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (mode == CaptureMode.PHOTO) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        QuickChip(
-                            if (cam.timerSeconds > 0) "⏱${cam.timerSeconds}s" else "⏱Off",
-                            cam.timerSeconds > 0,
-                            !isRecording && !busy,
-                        ) {
-                            cam.timerSeconds = when (cam.timerSeconds) {
-                                0 -> 3
-                                3 -> 5
-                                5 -> 10
-                                else -> 0
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        QuickChip(
-                            "💥${cam.burstCount}x",
-                            cam.burstCount > 1,
-                            !isRecording && !busy,
-                        ) {
-                            cam.burstCount = when (cam.burstCount) {
-                                1 -> 3
-                                3 -> 5
-                                else -> 1
-                            }
-                        }
-                    }
-                } else if (mode == CaptureMode.TIMELAPSE) {
-                    QuickChip("⏱ ${cam.timelapseIntervalSec}s", true, !isTimelapseActive) {
-                        cam.timelapseIntervalSec = when (cam.timelapseIntervalSec) {
-                            1 -> 2
-                            2 -> 5
-                            5 -> 10
-                            10 -> 30
-                            else -> 1
-                        }
-                    }
-                } else if (mode == CaptureMode.SLOW_MO) {
-                    QuickChip("⚡ ${cam.slowMoSpeed.label}", true, !isRecording) {
-                        cam.slowMoSpeed = when (cam.slowMoSpeed) {
-                            SlowMoSpeed.X2 -> SlowMoSpeed.X4
-                            SlowMoSpeed.X4 -> SlowMoSpeed.X8
-                            SlowMoSpeed.X8 -> SlowMoSpeed.X2
-                        }
-                    }
-                }
-
-                // Dedicated Flip Camera Button
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                    modifier = Modifier.size(52.dp),
-                ) {
-                    IconButton(
-                        onClick = { flipCamera() },
-                        enabled = !busy && !isRecording && lenses.size > 1,
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        Icon(
-                            Icons.Filled.Cameraswitch,
-                            contentDescription = "Flip Camera",
-                            tint = if (lenses.size > 1) Color.White else Color.White.copy(alpha = 0.4f),
-                            modifier = Modifier.size(26.dp),
-                        )
-                    }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                    if (isRecording) SnapshotButton(52.dp) else FlipButton(52.dp)
                 }
             }
         }
-    }
     }
 
     @Composable
     fun LandscapeRightDeck() {
         Column(
             Modifier
-                .width(96.dp)
+                .width(104.dp)
                 .fillMaxHeight()
-                .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.92f))
+                .background(Color.Black)
                 .navigationBarsPadding()
-                .padding(vertical = 8.dp, horizontal = 4.dp),
+                .padding(vertical = 12.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            // Top: Compact mode selector
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
+            // Top: mode switcher
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CaptureMode.entries.forEach { m ->
-                    val active = mode == m
-                    Surface(
-                        shape = CircleShape,
-                        color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                        modifier = Modifier
-                            .clickable(enabled = !busy && !isRecording) {
-                                mode = m
-                                openPanel = null
-                            }
-                            .padding(vertical = 1.dp),
-                    ) {
-                        Text(
-                            text = m.name,
-                            color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Normal,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        )
-                    }
+                    CameraModeLabel(
+                        text = m.displayName,
+                        active = mode == m,
+                        enabled = !busy && !isRecording,
+                        onClick = {
+                            mode = m
+                            openPanel = null
+                        },
+                        horizontalPadding = 4.dp,
+                    )
                 }
             }
 
-            // Center: Lens switcher capsule + Shutter button
+            // Center: lens/zoom, shutter, mode options
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (lenses.isNotEmpty()) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 4.dp, vertical = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        ) {
-                            lenses.forEachIndexed { i, lens ->
-                                val active = i == selected
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                    modifier = Modifier.clickable(enabled = !busy && !isRecording) { selected = i },
-                                ) {
-                                    Text(
-                                        text = lens.shortLabel,
-                                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
+                LensOrZoomSelector(allowZoomPresets = false)
                 ShutterButton(
                     mode = mode,
                     busy = busy,
@@ -2002,69 +1855,21 @@ fun CameraScreen(
                     onVideoClick = { toggleRecording() },
                     onTimelapseClick = { toggleTimelapse() },
                 )
-
-                if (isRecording) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0x55FFFFFF),
-                        border = BorderStroke(2.dp, Color.White),
-                        modifier = Modifier.size(44.dp),
-                    ) {
-                        IconButton(onClick = { takeVideoSnapshot() }, enabled = !busy, modifier = Modifier.fillMaxSize()) {
-                            Icon(Icons.Filled.CameraAlt, contentDescription = "Take Snapshot", tint = Color.White, modifier = Modifier.size(20.dp))
-                        }
-                    }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ModeOptionChips()
                 }
             }
 
-            // Bottom: Thumbnail & Flip Camera
+            // Bottom: thumbnail and flip / snapshot
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(
-                    Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.5.dp, Color(0x55FFFFFF), RoundedCornerShape(10.dp))
-                        .background(Color(0x33FFFFFF))
-                        .clickable(enabled = lastUri != null && !isRecording) {
-                            lastUri?.let { uri ->
-                                val intent = Intent(Intent.ACTION_VIEW)
-                                    .setDataAndType(uri, lastMime)
-                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                runCatching { context.startActivity(intent) }
-                            }
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val t = lastThumb
-                    if (t != null) {
-                        Image(t.asImageBitmap(), "Last capture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                    } else if (lastUri != null) {
-                        Text(if (lastMime.startsWith("video")) "VID" else "RAW", color = Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                    }
-                }
-
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                    modifier = Modifier.size(44.dp),
-                ) {
-                    IconButton(
-                        onClick = { flipCamera() },
-                        enabled = !busy && !isRecording && lenses.size > 1,
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        Icon(
-                            Icons.Filled.Cameraswitch,
-                            contentDescription = "Flip Camera",
-                            tint = if (lenses.size > 1) Color.White else Color.White.copy(alpha = 0.4f),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
+                LastCaptureThumb(44.dp, showShareButton = false)
+                if (isRecording) SnapshotButton(44.dp) else FlipButton(44.dp)
             }
         }
     }
@@ -2087,13 +1892,12 @@ fun CameraScreen(
                         .aspectRatio(activeNativeRatio),
                 )
 
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.78f),
-                    shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp),
-                    modifier = Modifier
+                Box(
+                    Modifier
                         .fillMaxWidth()
-                        .statusBarsPadding()
-                        .align(Alignment.TopCenter),
+                        .align(Alignment.TopCenter)
+                        .background(Brush.verticalGradient(listOf(CameraColors.ScrimStrong, Color.Transparent)))
+                        .statusBarsPadding(),
                 ) {
                     TopBarContent(isLandscape = true)
                 }
@@ -2105,7 +1909,7 @@ fun CameraScreen(
                         Modifier
                             .align(Alignment.TopCenter)
                             .statusBarsPadding()
-                            .padding(top = if (showToolsBar) 94.dp else 52.dp),
+                            .padding(top = landscapeTopInset),
                     ) {
                         InfoBar(
                             mode = mode, manual = manual, readout = readout, cam = cam, sensor = sensor,
@@ -2143,9 +1947,8 @@ fun CameraScreen(
                 .fillMaxSize()
                 .background(Color.Black),
         ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.82f),
-                modifier = Modifier
+            Box(
+                Modifier
                     .fillMaxWidth()
                     .statusBarsPadding(),
             ) {
@@ -2198,6 +2001,14 @@ fun CameraScreen(
     }
 }
 
+private val CaptureMode.displayName
+    get() = when (this) {
+        CaptureMode.PHOTO -> "Photo"
+        CaptureMode.VIDEO -> "Video"
+        CaptureMode.TIMELAPSE -> "Time-lapse"
+        CaptureMode.SLOW_MO -> "Slow-mo"
+    }
+
 @Composable
 private fun ShutterButton(
     mode: CaptureMode,
@@ -2210,116 +2021,66 @@ private fun ShutterButton(
     onVideoClick: () -> Unit,
     onTimelapseClick: () -> Unit,
 ) {
-    val outerRingColor = when (mode) {
-        CaptureMode.PHOTO -> Color.White
-        CaptureMode.VIDEO -> Color(0xFFE53935)
-        CaptureMode.SLOW_MO -> Color(0xFF00E5FF)
-        CaptureMode.TIMELAPSE -> MaterialTheme.colorScheme.primary
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.9f else 1f, label = "shutterScale")
+
+    val active = when (mode) {
+        CaptureMode.PHOTO -> false
+        CaptureMode.TIMELAPSE -> isTimelapseActive
+        CaptureMode.VIDEO, CaptureMode.SLOW_MO -> isRecording
+    }
+    val fill = when {
+        !isReady -> CameraColors.OnScrimDisabled
+        mode == CaptureMode.PHOTO -> if (busy) CameraColors.OnScrimMuted else CameraColors.OnScrim
+        mode == CaptureMode.VIDEO -> CameraColors.Recording
+        mode == CaptureMode.SLOW_MO -> CameraColors.SlowMo
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val innerSize by animateDpAsState(if (active) 30.dp else 62.dp, label = "shutterInner")
+    val innerCorner by animateDpAsState(if (active) 8.dp else 31.dp, label = "shutterCorner")
+    val enabled = isReady && (mode != CaptureMode.PHOTO || !busy)
+    val onClick = when (mode) {
+        CaptureMode.PHOTO -> onPhotoClick
+        CaptureMode.TIMELAPSE -> onTimelapseClick
+        CaptureMode.VIDEO, CaptureMode.SLOW_MO -> onVideoClick
+    }
+    val label = when (mode) {
+        CaptureMode.PHOTO -> "Take photo"
+        CaptureMode.TIMELAPSE -> if (isTimelapseActive) "Stop time-lapse" else "Start time-lapse"
+        CaptureMode.VIDEO, CaptureMode.SLOW_MO -> if (isRecording) "Stop recording" else "Start recording"
     }
 
-    when (mode) {
-        CaptureMode.PHOTO -> {
-            Box(
-                Modifier
-                    .size(78.dp)
-                    .border(BorderStroke(4.dp, outerRingColor), CircleShape)
-                    .padding(7.dp)
-                    .clip(CircleShape)
-                    .background(if (busy) Color.Gray else Color.White)
-                    .clickable(enabled = !busy && isReady, onClick = onPhotoClick),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (attendanceMode) {
-                    Text("PUNCH", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                }
+    Box(
+        Modifier
+            .size(78.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
             }
-        }
-        CaptureMode.TIMELAPSE -> {
-            Box(
-                Modifier
-                    .size(78.dp)
-                    .border(BorderStroke(4.dp, outerRingColor), CircleShape)
-                    .padding(7.dp)
-                    .clip(CircleShape)
-                    .clickable(enabled = isReady, onClick = onTimelapseClick),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .size(if (isTimelapseActive) 28.dp else 56.dp)
-                        .clip(if (isTimelapseActive) RoundedCornerShape(6.dp) else CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                )
-            }
-        }
-        CaptureMode.SLOW_MO -> {
-            Box(
-                Modifier
-                    .size(78.dp)
-                    .border(BorderStroke(4.dp, outerRingColor), CircleShape)
-                    .padding(7.dp)
-                    .clip(CircleShape)
-                    .clickable(enabled = isReady, onClick = onVideoClick),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .size(if (isRecording) 28.dp else 56.dp)
-                        .clip(if (isRecording) RoundedCornerShape(6.dp) else CircleShape)
-                        .background(Color(0xFF00E5FF)),
-                )
-            }
-        }
-        CaptureMode.VIDEO -> {
-            Box(
-                Modifier
-                    .size(78.dp)
-                    .border(BorderStroke(4.dp, outerRingColor), CircleShape)
-                    .padding(7.dp)
-                    .clip(CircleShape)
-                    .clickable(enabled = isReady, onClick = onVideoClick),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .size(if (isRecording) 28.dp else 56.dp)
-                        .clip(if (isRecording) RoundedCornerShape(6.dp) else CircleShape)
-                        .background(Color(0xFFE53935)),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuickChip(text: String, on: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Surface(
-        shape = CircleShape,
-        color = when {
-            !enabled -> MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.38f)
-            on -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f)
-        },
-        border = BorderStroke(
-            1.dp,
-            if (on && enabled) MaterialTheme.colorScheme.primary
-            else if (enabled) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
-        ),
-        modifier = Modifier
-            .padding(horizontal = 2.dp)
-            .clickable(enabled = enabled, onClick = onClick),
+            .border(BorderStroke(4.dp, if (isReady) CameraColors.OnScrim else CameraColors.OnScrimDisabled), CircleShape)
+            .clip(CircleShape)
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = text,
-            color = when {
-                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                on -> MaterialTheme.colorScheme.onPrimary
-                else -> MaterialTheme.colorScheme.onSurface
-            },
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-        )
+        Box(
+            Modifier
+                .size(innerSize)
+                .clip(RoundedCornerShape(innerCorner))
+                .background(fill),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (mode == CaptureMode.PHOTO && attendanceMode) {
+                Text("PUNCH", color = Color.Black, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
+            }
+        }
+        if (busy && mode == CaptureMode.PHOTO) {
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 3.dp,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
