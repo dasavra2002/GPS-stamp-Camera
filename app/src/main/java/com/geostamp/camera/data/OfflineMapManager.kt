@@ -1,6 +1,7 @@
 package com.geostamp.camera.data
 
 import android.content.Context
+import kotlinx.coroutines.delay
 import java.io.File
 import kotlin.math.PI
 import kotlin.math.cos
@@ -57,37 +58,39 @@ object OfflineMapManager {
         return coords.distinct()
     }
 
+    /** Largest pack allowed in one go, to stay polite even to servers that allow offline use. */
+    const val MAX_PACK_TILES = 5_000
+
+    /** Tiles live in cacheDir/map_tiles/<source id>/<zoom>/<y>_<x>.png */
+    fun cacheDir(context: Context, source: TileSource): File = File(context.cacheDir, "map_tiles/${source.id}")
+
+    /**
+     * Downloads every tile of an area for offline use. Only runs against a tile source whose
+     * terms allow bulk downloading (a custom server); the free public servers forbid it.
+     */
     suspend fun downloadAreaPack(
         context: Context,
         centerLat: Double,
         centerLon: Double,
         radiusKm: Double,
-        mapType: MapType,
+        source: TileSource,
         zooms: List<Int> = listOf(14, 15, 16, 17),
         onProgress: ((current: Int, total: Int) -> Unit)? = null,
     ): DownloadResult {
+        require(source.bulkDownloadAllowed) { "${source.id} does not allow bulk downloads" }
         val tiles = calculateTilesForArea(centerLat, centerLon, radiusKm, zooms)
+        require(tiles.size <= MAX_PACK_TILES) { "Area too large: ${tiles.size} tiles" }
         var downloaded = 0
         var alreadyCached = 0
         var failed = 0
 
         tiles.forEachIndexed { index, t ->
-            val cacheBase = File(context.cacheDir, "map_tiles/${mapType.name.lowercase()}/${t.zoom}")
-            val cacheFile = File(cacheBase, "${t.y}_${t.x}.png")
+            val cacheFile = File(cacheDir(context, source), "${t.zoom}/${t.y}_${t.x}.png")
 
             if (cacheFile.exists() && cacheFile.length() > 0) {
                 alreadyCached++
             } else {
-                val url = when (mapType) {
-                    MapType.SATELLITE ->
-                        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${t.zoom}/${t.y}/${t.x}"
-                    MapType.TERRAIN ->
-                        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/${t.zoom}/${t.y}/${t.x}"
-                    MapType.STREET ->
-                        "https://tile.openstreetmap.org/${t.zoom}/${t.x}/${t.y}.png"
-                }
-
-                val bytes = httpGet(url)
+                val bytes = httpGet(source.url(t.zoom, t.x, t.y))
                 if (bytes != null && bytes.isNotEmpty()) {
                     runCatching {
                         cacheFile.parentFile?.mkdirs()
@@ -97,6 +100,8 @@ object OfflineMapManager {
                 } else {
                     failed++
                 }
+                // One request at a time with a short pause, as tile providers ask.
+                delay(50)
             }
             onProgress?.invoke(index + 1, tiles.size)
         }

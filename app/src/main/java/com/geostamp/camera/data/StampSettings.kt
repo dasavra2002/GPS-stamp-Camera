@@ -224,6 +224,29 @@ class StampSettings(private val context: Context) {
             runCatching { com.geostamp.camera.widget.GeoStampAppWidgetProvider.updateAllWidgets(context) }
         }
 
+    private val customTileUrlState = stringState("custom_tile_url", "")
+    /** Tile URL template ({z}/{x}/{y}) of the user's own map provider; blank uses the free public maps. */
+    var customTileUrl: String
+        get() = customTileUrlState.value
+        set(v) {
+            customTileUrlState.value = v
+            prefs.edit().putString("custom_tile_url", v).apply()
+            TileSources.configureCustom(v, customTileAttribution)
+        }
+
+    private val customTileAttributionState = stringState("custom_tile_attribution", "")
+    var customTileAttribution: String
+        get() = customTileAttributionState.value
+        set(v) {
+            customTileAttributionState.value = v
+            prefs.edit().putString("custom_tile_attribution", v).apply()
+            TileSources.configureCustom(customTileUrl, v)
+        }
+
+    init {
+        TileSources.configureCustom(customTileUrl, customTileAttribution)
+    }
+
     private val custom1LabelState = stringState("custom1_label", "Engineer")
     var custom1Label: String
         get() = custom1LabelState.value

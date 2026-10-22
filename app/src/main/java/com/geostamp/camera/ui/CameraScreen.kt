@@ -131,6 +131,7 @@ import com.geostamp.camera.data.FrameGuide
 import com.geostamp.camera.data.PhotoFormat
 import com.geostamp.camera.data.SnapshotMode
 import com.geostamp.camera.data.SlowMoSpeed
+import com.geostamp.camera.data.StampConfig
 import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampField
 import com.geostamp.camera.data.ExtensionModeType
@@ -142,10 +143,9 @@ import com.geostamp.camera.data.VideoColor
 import com.geostamp.camera.data.VideoRes
 import com.geostamp.camera.location.FixCheck
 import com.geostamp.camera.location.FixIssue
-import com.geostamp.camera.stamp.CameraExif
 import com.geostamp.camera.stamp.PhotoComposer
-import com.geostamp.camera.stamp.PhotoSaver
 import com.geostamp.camera.stamp.ShotParams
+import com.geostamp.camera.stamp.StampedCapture
 import com.geostamp.camera.stamp.WatermarkRenderer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -501,6 +501,14 @@ fun CameraScreen(
         controller.setVideoStamp(if (mode.isVideo) bmp else null, config.size, config.position == StampPosition.TOP)
     }
 
+    fun shotParamsFor(lens: LensInfo, cfg: StampConfig) = ShotParams(
+        focalMm = lens.equivFocalMm,
+        aperture = lens.aperture,
+        shutterNs = readout.exposureNs,
+        iso = readout.iso,
+        model = cfg.deviceBrand.ifBlank { null },
+    )
+
     fun stampDataFor(lens: LensInfo) = repo.data.value.let { d0 ->
         if (lens.isFront) d0.copy(azimuthDeg = d0.azimuthDeg?.let { (it + 180f) % 360f }) else d0
     }
@@ -530,38 +538,26 @@ fun CameraScreen(
      * [cameraRotation] is CameraX's rotation for an in-memory JPEG, null when the file's EXIF already has it.
      */
     suspend fun saveStamped(bmp0: Bitmap, lens: LensInfo, cameraJpeg: ByteArray? = null, cameraRotation: Int? = null) {
-        val time = ZonedDateTime.now()
         val cfg = settings.snapshot()
-        val d = stampDataFor(lens)
-        val shotParams = ShotParams(
-            focalMm = lens.equivFocalMm,
-            aperture = lens.aperture,
-            shutterNs = readout.exposureNs,
-            iso = readout.iso,
-            model = cfg.deviceBrand.ifBlank { null },
+        val request = StampedCapture.Request(
+            frame = bmp0,
+            config = cfg,
+            data = stampDataFor(lens),
+            time = ZonedDateTime.now(),
+            lensLabel = lens.label,
+            shotParams = shotParamsFor(lens, cfg),
+            cropRatio = if (photoCrop) cam.photoAspect.ratio else null,
+            subFolder = cfg.siteName.ifBlank { null },
+            cameraJpeg = cameraJpeg,
+            cameraRotation = cameraRotation,
+            keepOriginal = cam.keepOriginal,
         )
-        val result = withContext(Dispatchers.Default) {
-            val source = d.locationSource ?: "none"
-            val site = cfg.siteName.ifBlank { null }
-            val exif = CameraExif.fromShotParams(shotParams) + (cameraJpeg?.let { CameraExif.read(it) } ?: emptyMap())
-            if (cam.keepOriginal && cameraJpeg != null) {
-                PhotoSaver.saveOriginal(context, cameraJpeg, d, time, cfg.number, source, subFolder = site, rotationDegrees = cameraRotation)
-            }
-            val bmp = if (photoCrop) PhotoComposer.cropToAspect(bmp0, cam.photoAspect.ratio) else bmp0
-            val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label, shotParams)
-            val uri = PhotoSaver.save(context, stamped, d, time, cfg.number, source, subFolder = site, cameraExif = exif)
-            val thumbW = 240
-            val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
-            stamped.recycle()
-            if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()
-            if (bmp0 !== bmp && bmp0 !== stamped && !bmp0.isRecycled) bmp0.recycle()
-            uri to thumb
-        }
+        val result = withContext(Dispatchers.Default) { StampedCapture.save(context, request) }
         settings.nextNumber = settings.nextNumber + 1
-        lastUri = result.first
+        lastUri = result.uri
         lastMime = "image/jpeg"
-        lastThumb = result.second
-        if (result.first == null) {
+        lastThumb = result.thumbnail
+        if (result.uri == null) {
             Toast.makeText(context, "Couldn't save photo", Toast.LENGTH_SHORT).show()
         } else if (cam.autoDriveUpload) {
             uploadLastToGoogleDrive()
@@ -784,31 +780,23 @@ fun CameraScreen(
                     val rawBmp = withContext(Dispatchers.Default) {
                         PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees, lens.isFront)
                     }
-                    val time = ZonedDateTime.now()
                     val cfg = settings.snapshot()
-                    val d = stampDataFor(lens)
-                    val shotParams = ShotParams(
-                        focalMm = lens.equivFocalMm,
-                        aperture = lens.aperture,
-                        shutterNs = readout.exposureNs,
-                        iso = readout.iso,
-                        model = cfg.deviceBrand.ifBlank { null },
+                    val request = StampedCapture.Request(
+                        frame = rawBmp,
+                        config = cfg,
+                        data = stampDataFor(lens),
+                        time = ZonedDateTime.now(),
+                        lensLabel = lens.label,
+                        shotParams = shotParamsFor(lens, cfg),
+                        cropRatio = if (photoCrop) cam.photoAspect.ratio else null,
+                        prefix = "Frame",
+                        subFolder = sub,
+                        cameraJpeg = photo.jpeg,
                     )
-                    val frameUri = withContext(Dispatchers.Default) {
-                        val bmp = if (photoCrop) PhotoComposer.cropToAspect(rawBmp, cam.photoAspect.ratio) else rawBmp
-                        val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label, shotParams)
-                        val exif = CameraExif.fromShotParams(shotParams) + CameraExif.read(photo.jpeg)
-                        val uri = PhotoSaver.save(context, stamped, d, time, cfg.number, d.locationSource ?: "none", prefix = "Frame", subFolder = sub, cameraExif = exif)
-                        val thumbW = 240
-                        val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
-                        stamped.recycle()
-                        if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()
-                        if (rawBmp !== bmp && rawBmp !== stamped && !rawBmp.isRecycled) rawBmp.recycle()
-                        uri to thumb
-                    }
-                    lastUri = frameUri.first
+                    val frame = withContext(Dispatchers.Default) { StampedCapture.save(context, request) }
+                    lastUri = frame.uri
                     lastMime = "image/jpeg"
-                    lastThumb = frameUri.second
+                    lastThumb = frame.thumbnail
                     timelapseFrameCount++
                     settings.nextNumber = settings.nextNumber + 1
                     delay(cam.timelapseIntervalSec * 1000L)
