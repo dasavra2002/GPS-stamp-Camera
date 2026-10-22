@@ -33,6 +33,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Card
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Business
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Description
@@ -341,7 +354,7 @@ fun GalleryScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "Stamp Gallery Photos",
+                        "Stamp from gallery",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -355,7 +368,7 @@ fun GalleryScreen(
                     TextButton(onClick = { showVerify = true }) {
                         Icon(Icons.Filled.VerifiedUser, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Verify photo")
+                        Text("Verify")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -374,10 +387,10 @@ fun GalleryScreen(
         ) {
             // Header description
             Text(
-                "Pick photos from your phone. Location, date/time and orientation are extracted from EXIF; address, map and weather are looked up. Missing data can be added with Edit Details. Originals remain untouched.",
+                "Location and time come from each photo's EXIF; address, map and weather are looked up for you. Originals are never changed.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
             // Primary actions row (Pick Photos & Stamp All)
@@ -393,7 +406,9 @@ fun GalleryScreen(
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("Pick Photos", style = MaterialTheme.typography.labelLarge)
+                    Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Pick photos", style = MaterialTheme.typography.labelLarge)
                 }
                 val stampable = state.items.filter { it.status == ItemStatus.READY }
                 FilledTonalButton(
@@ -402,7 +417,7 @@ fun GalleryScreen(
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("Stamp All (${stampable.size})", style = MaterialTheme.typography.labelLarge)
+                    Text("Stamp all (${stampable.size})", style = MaterialTheme.typography.labelLarge)
                 }
             }
 
@@ -428,7 +443,7 @@ fun GalleryScreen(
                 ) {
                     AssistChip(
                         onClick = { showSignatureDialog = true },
-                        label = { Text("PDF Report") },
+                        label = { Text("PDF report") },
                         leadingIcon = { Icon(Icons.Filled.Description, null, modifier = Modifier.size(16.dp)) },
                         colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     )
@@ -449,7 +464,7 @@ fun GalleryScreen(
                                 }
                             }
                         },
-                        label = { Text("CSV Export") },
+                        label = { Text("CSV") },
                         leadingIcon = { Icon(Icons.Filled.TableChart, null, modifier = Modifier.size(16.dp)) },
                         colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     )
@@ -470,7 +485,7 @@ fun GalleryScreen(
                                 }
                             }
                         },
-                        label = { Text("Google Earth (KML)") },
+                        label = { Text("Google Earth") },
                         leadingIcon = { Icon(Icons.Filled.Public, null, modifier = Modifier.size(16.dp)) },
                         colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     )
@@ -516,7 +531,7 @@ fun GalleryScreen(
                                 }
                             }
                         },
-                        label = { Text("Drive Backup") },
+                        label = { Text("Drive backup") },
                         leadingIcon = { Icon(Icons.Filled.CloudUpload, null, modifier = Modifier.size(16.dp)) },
                         colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     )
@@ -540,7 +555,7 @@ fun GalleryScreen(
                         onClick = { viewMode = GalleryViewMode.MAP },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     ) {
-                        Text("Photo Map (${state.items.count { it.data.latitude != null }})")
+                        Text("Map (${state.items.count { it.data.latitude != null }})")
                     }
                 }
             }
@@ -553,7 +568,30 @@ fun GalleryScreen(
                 }
             }
 
-            if (viewMode == GalleryViewMode.LIST) {
+            if (state.items.isEmpty() && !state.busy) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.PhotoLibrary,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(56.dp),
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text("No photos yet", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Pick photos to add a location stamp to them.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else if (viewMode == GalleryViewMode.LIST) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -697,18 +735,16 @@ private fun ItemCard(
     onOpen: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    ElevatedCard(
+    Card(
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 4.dp)) {
             Row {
                 Box(
                     Modifier
-                        .size(86.dp)
+                        .size(88.dp)
                         .clip(MaterialTheme.shapes.medium)
                         .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 ) {
@@ -720,81 +756,96 @@ private fun ItemCard(
                 Column(Modifier.weight(1f)) {
                     Text(
                         item.name,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    Spacer(Modifier.height(4.dp))
                     val d = item.data
-                    Text(
-                        if (d.latitude != null) String.format(Locale.US, "📍 %.5f, %.5f", d.latitude, d.longitude) +
-                            (if (item.meta.hasLocation && !item.edited) " (from photo)" else " (entered)")
-                        else "📍 No location",
-                        color = if (d.latitude != null) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
+                    InfoLine(
+                        icon = if (d.latitude != null) Icons.Filled.LocationOn else Icons.Filled.LocationOff,
+                        text = if (d.latitude != null) String.format(Locale.US, "%.5f, %.5f", d.latitude, d.longitude) +
+                            (if (item.meta.hasLocation && !item.edited) " · from photo" else " · entered")
+                        else "No location",
+                        color = if (d.latitude != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                     )
-                    Text(
-                        "🕒 " + DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(item.time) +
+                    InfoLine(
+                        icon = Icons.Filled.Schedule,
+                        text = DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(item.time) +
                             when {
                                 item.edited -> ""
-                                item.meta.timeFromExif -> " (from photo)"
-                                item.meta.time != null -> " (file date)"
-                                else -> " (unknown – set it)"
+                                item.meta.timeFromExif -> " · from photo"
+                                item.meta.time != null -> " · file date"
+                                else -> " · unknown, set it"
                             },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    d.title?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    }
+                    d.title?.let { InfoLine(icon = Icons.Filled.Business, text = it) }
                     if (item.audioMemoPath != null) {
-                        Text(
-                            "🎙️ Voice Memo Attached",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        InfoLine(icon = Icons.Filled.Mic, text = "Voice memo attached", color = MaterialTheme.colorScheme.primary)
                     }
-                    Text(
-                        item.status.text,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (item.status == ItemStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium,
-                    )
+                    Spacer(Modifier.height(6.dp))
+                    StatusPill(item.status)
                 }
             }
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
-            )
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onRemove) {
-                    Text("Remove", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Filled.DeleteOutline, contentDescription = "Remove", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = onEdit, enabled = item.status != ItemStatus.SAVING) {
-                    Text("Edit Details", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Edit", style = MaterialTheme.typography.labelLarge)
                 }
                 TextButton(onClick = onPreview) {
-                    Text("Preview", style = MaterialTheme.typography.labelMedium)
+                    Text("Preview", style = MaterialTheme.typography.labelLarge)
                 }
                 if (item.status == ItemStatus.SAVED) {
                     FilledTonalButton(onClick = onOpen) {
-                        Text("Open", style = MaterialTheme.typography.labelMedium)
+                        Text("Open", style = MaterialTheme.typography.labelLarge)
                     }
                 } else {
                     Button(
                         onClick = onStamp,
                         enabled = item.status != ItemStatus.SAVING && item.status != ItemStatus.LOOKING_UP && item.status != ItemStatus.READING,
                     ) {
-                        Text("Stamp", style = MaterialTheme.typography.labelMedium)
+                        Text("Stamp", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun InfoLine(icon: ImageVector, text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 1.dp)) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun StatusPill(status: ItemStatus) {
+    val (container, content) = when (status) {
+        ItemStatus.FAILED -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+        ItemStatus.SAVED -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    Surface(shape = CircleShape, color = container) {
+        Text(
+            status.text,
+            style = MaterialTheme.typography.labelSmall,
+            color = content,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
     }
 }
 
@@ -1095,7 +1146,9 @@ private fun EditDetailsScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text("🔤 OCR Signboard")
+                                Icon(Icons.Filled.TextFields, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Read sign")
                             }
 
                             FilledTonalButton(
@@ -1121,7 +1174,9 @@ private fun EditDetailsScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text("🏷️ Auto Caption")
+                                Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Auto caption")
                             }
                         }
                     }
@@ -1356,12 +1411,12 @@ private fun MapItemCard(
     onStamp: () -> Unit,
     onShareWhatsApp: () -> Unit,
 ) {
-    ElevatedCard(
+    Card(
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(12.dp)) {
             Row {
                 Box(
                     Modifier
@@ -1388,22 +1443,13 @@ private fun MapItemCard(
                     val lat = item.data.latitude
                     val lon = item.data.longitude
                     if (lat != null && lon != null) {
-                        Text(
-                            String.format(Locale.US, "📍 %.5f, %.5f", lat, lon),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.tertiary,
-                        )
+                        InfoLine(icon = Icons.Filled.LocationOn, text = String.format(Locale.US, "%.5f, %.5f", lat, lon))
                     }
-                    item.data.plusCode?.let {
-                        Text("🌐 $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    }
-                    item.data.title?.let {
-                        Text("🏢 $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                    }
-                    Text(
-                        "🕒 " + DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(item.time),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    item.data.plusCode?.let { InfoLine(icon = Icons.Filled.Public, text = it) }
+                    item.data.title?.let { InfoLine(icon = Icons.Filled.Business, text = it) }
+                    InfoLine(
+                        icon = Icons.Filled.Schedule,
+                        text = DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(item.time),
                     )
                 }
             }
@@ -1420,21 +1466,22 @@ private fun MapItemCard(
                     onClick = onOpenInMap,
                     modifier = Modifier.padding(end = 6.dp),
                 ) {
-                    Text("🗺️ Map View", style = MaterialTheme.typography.labelMedium)
+                    Icon(Icons.Filled.Map, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Open map", style = MaterialTheme.typography.labelLarge)
                 }
                 if (item.status == ItemStatus.SAVED) {
-                    Button(
-                        onClick = onShareWhatsApp,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366), contentColor = Color.White),
-                    ) {
-                        Text("💬 WhatsApp", style = MaterialTheme.typography.labelMedium)
+                    Button(onClick = onShareWhatsApp) {
+                        Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("WhatsApp", style = MaterialTheme.typography.labelLarge)
                     }
                 } else {
                     Button(
                         onClick = onStamp,
                         enabled = item.status != ItemStatus.SAVING && item.status != ItemStatus.LOOKING_UP,
                     ) {
-                        Text("⚡ Stamp", style = MaterialTheme.typography.labelMedium)
+                        Text("Stamp", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }

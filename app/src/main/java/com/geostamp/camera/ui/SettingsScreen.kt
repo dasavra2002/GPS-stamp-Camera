@@ -27,6 +27,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Card
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -218,7 +222,7 @@ fun SettingsScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            "Camera & Stamp Settings",
+                            "Settings",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
@@ -350,7 +354,7 @@ private fun WatermarksTabContent(
                                     .background(MaterialTheme.colorScheme.primary)
                             )
                             Text(
-                                "LIVE WATERMARK PREVIEW",
+                                "Live preview",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold,
@@ -396,7 +400,7 @@ private fun WatermarksTabContent(
 
         // 2. Watermark Style & Frame Design
         item(key = "watermark_style_section") {
-            SettingsGroupCard(title = "Watermark & Frame Style") {
+            SettingsGroupCard(title = "Watermark style") {
                 ChoiceRow("Frame Design", settings.watermarkStyle, WatermarkStyle.entries) {
                     settings.watermarkStyle = it
                 }
@@ -434,7 +438,7 @@ private fun WatermarksTabContent(
 
         // 3. Project Tags, Notes & Identity
         item(key = "identity_fields_section") {
-            SettingsGroupCard(title = "Project, Identification & Notes") {
+            SettingsGroupCard(title = "Project & notes") {
                 val idFields = StampField.entries.filter { it.group == StampGroup.BRANDING }
                 idFields.forEachIndexed { index, field ->
                     if (index > 0) {
@@ -486,7 +490,7 @@ private fun WatermarksTabContent(
 
         // 4. Custom Templates & Localization
         item(key = "templates_and_localization_section") {
-            SettingsGroupCard(title = "Appearance, Typography & Presets") {
+            SettingsGroupCard(title = "Appearance & presets") {
                 ChoiceRow("Preset Template", StampTemplate.STANDARD, StampTemplate.entries) { settings.applyTemplate(it) }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
@@ -577,7 +581,7 @@ private fun CameraTabContent(cam: CameraSettings?) {
     ) {
         // Photo Specs Card
         item(key = "photo_specs_card") {
-            SettingsGroupCard(title = "Photo Capture & Optics") {
+            SettingsGroupCard(title = "Photo") {
                 ChoiceRow("Photo Format", cam.photoFormat, PhotoFormat.entries) { cam.photoFormat = it }
                 ChoiceRow("Photo Aspect Ratio", cam.photoAspect, PhotoAspect.entries) { cam.photoAspect = it }
                 ChoiceRow("Timer Delay", cam.timerSeconds, listOf(0, 3, 5, 10)) { cam.timerSeconds = it }
@@ -587,7 +591,7 @@ private fun CameraTabContent(cam: CameraSettings?) {
 
         // Viewfinder Guides & Assists
         item(key = "viewfinder_assists_card") {
-            SettingsGroupCard(title = "Viewfinder Guides & Assists") {
+            SettingsGroupCard(title = "Viewfinder guides") {
                 ChoiceRow("Grid Guides", cam.grid, GridType.entries) { cam.grid = it }
                 ChoiceRow("Frame Aspect Mask", cam.frameGuide, FrameGuide.entries) { cam.frameGuide = it }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
@@ -623,7 +627,7 @@ private fun CameraTabContent(cam: CameraSettings?) {
 
         // Video Settings Card
         item(key = "video_settings_card") {
-            SettingsGroupCard(title = "Video Recording & Codecs") {
+            SettingsGroupCard(title = "Video") {
                 ChoiceRow("Video Resolution", cam.videoRes, VideoRes.entries) { cam.videoRes = it }
                 ChoiceRow("Video Aspect Ratio", cam.videoAspect, VideoAspect.entries) { cam.videoAspect = it }
                 ChoiceRow("Video Encoder", cam.videoCodec, VideoCodec.entries) { cam.videoCodec = it }
@@ -654,7 +658,7 @@ private fun CameraTabContent(cam: CameraSettings?) {
 
         // Hardware Buttons Card
         item(key = "hardware_buttons_card") {
-            SettingsGroupCard(title = "Hardware Volume Buttons") {
+            SettingsGroupCard(title = "Volume buttons") {
                 ChoiceRow("Volume Buttons Action", cam.volumeButtonAction, VolumeButtonAction.entries) {
                     cam.volumeButtonAction = it
                 }
@@ -663,7 +667,7 @@ private fun CameraTabContent(cam: CameraSettings?) {
 
         // Preserve Settings Card
         item(key = "preserve_settings_card") {
-            SettingsGroupCard(title = "Preserve Settings Between Launches") {
+            SettingsGroupCard(title = "Remember between launches") {
                 Text(
                     text = "Retain previously used modes and parameters instead of resetting to default choices when launching the camera.",
                     style = MaterialTheme.typography.bodySmall,
@@ -734,7 +738,7 @@ private fun GpsAndSensorsTabContent(
     ) {
         // Coordinates and Position Card
         item(key = "coordinates_card") {
-            SettingsGroupCard(title = "Coordinates & Position Fields") {
+            SettingsGroupCard(title = "Coordinates") {
                 ChoiceRow("Coordinate Format", settings.coordinateFormat, CoordinateFormat.entries) {
                     settings.coordinateFormat = it
                 }
@@ -754,7 +758,7 @@ private fun GpsAndSensorsTabContent(
 
         // Multi-Project Geofence Boundaries Card
         item(key = "geofence_card") {
-            SettingsGroupCard(title = "Multi-Project Geofence Boundaries") {
+            SettingsGroupCard(title = "Geofences") {
                 ToggleRow(
                     title = "Auto-switch project tags on site entry",
                     subtitle = "Automatically populates Project, Contractor & Client tags inside site radius",
@@ -793,15 +797,15 @@ private fun GpsAndSensorsTabContent(
                                         Spacer(Modifier.width(8.dp))
                                         if (isInside) {
                                             Surface(
-                                                color = Color(0xFFE8F5E9),
-                                                shape = RoundedCornerShape(6.dp),
+                                                color = MaterialTheme.colorScheme.tertiaryContainer,
+                                                shape = CircleShape,
                                             ) {
                                                 Text(
-                                                    "ACTIVE (${dist?.toInt()}m)",
-                                                    color = Color(0xFF2E7D32),
+                                                    "Active · ${dist?.toInt()} m",
+                                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                                 )
                                             }
                                         }
@@ -859,14 +863,14 @@ private fun GpsAndSensorsTabContent(
 
         // Bluetooth GNSS / RTK Receiver Card
         item(key = "bluetooth_rtk_card") {
-            SettingsGroupCard(title = "External Bluetooth GNSS / RTK Receiver") {
+            SettingsGroupCard(title = "Bluetooth GNSS / RTK receiver") {
                 BluetoothGpsSection(manager = btManager)
             }
         }
 
         // Weather & Environment Sensors Card
         item(key = "weather_sensors_card") {
-            SettingsGroupCard(title = "Weather & Environmental Sensors") {
+            SettingsGroupCard(title = "Weather") {
                 val weatherFields = StampField.entries.filter { it.group == StampGroup.WEATHER }
                 weatherFields.forEachIndexed { index, field ->
                     if (index > 0) {
@@ -879,7 +883,7 @@ private fun GpsAndSensorsTabContent(
 
         // Device Sensors (Compass, Magnetic, Sound) Card
         item(key = "device_sensors_card") {
-            SettingsGroupCard(title = "Orientation, Compass & Audio Meter") {
+            SettingsGroupCard(title = "Compass & sound") {
                 val sensorFields = StampField.entries.filter { it.group == StampGroup.SENSORS }
                 sensorFields.forEachIndexed { index, field ->
                     if (index > 0) {
@@ -892,7 +896,7 @@ private fun GpsAndSensorsTabContent(
 
         // Offline Map Pack Card
         item(key = "offline_map_cache_card") {
-            SettingsGroupCard(title = "Map Tiles & Offline Storage") {
+            SettingsGroupCard(title = "Maps & offline storage") {
                 InlineField("Custom Tile Server URL ({z}/{x}/{y})", settings.customTileUrl, KeyboardType.Uri) { settings.customTileUrl = it.trim() }
                 if (settings.customTileUrl.isNotBlank()) {
                     InlineField("Map Attribution (shown on stamp)", settings.customTileAttribution) { settings.customTileAttribution = it }
@@ -927,7 +931,7 @@ private fun GeneralTabContent(
     ) {
         // Date & Numbering Card
         item(key = "date_numbering_card") {
-            SettingsGroupCard(title = "Date, Time & Numbering") {
+            SettingsGroupCard(title = "Date, time & numbering") {
                 ChoiceRow("Date Format", settings.dateFormat, DateFormat.entries) { settings.dateFormat = it }
                 InlineField("Next Photo Sequence Number", settings.nextNumber.toString(), KeyboardType.Number) { v ->
                     v.filter { it.isDigit() }.take(9).toIntOrNull()?.let { settings.nextNumber = it }
@@ -938,7 +942,7 @@ private fun GeneralTabContent(
         // Cloud & Automation Card
         if (cam != null) {
             item(key = "cloud_automation_card") {
-                SettingsGroupCard(title = "Cloud Upload & Workflows") {
+                SettingsGroupCard(title = "Cloud upload") {
                     ToggleRow(
                         title = "Keep Unstamped Original",
                         subtitle = "Also saves the camera's clean photo, signed, to Pictures/GeoStamp/Originals",
@@ -965,7 +969,7 @@ private fun GeneralTabContent(
 
         // Attribution & Version Card
         item(key = "about_attribution_card") {
-            SettingsGroupCard(title = "About & Map Attribution") {
+            SettingsGroupCard(title = "About & map attribution") {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(
                         "GeoStamp Pro Camera v1.3.0",
@@ -992,23 +996,23 @@ private fun GeneralTabContent(
 
 @Composable
 private fun SettingsGroupCard(title: String, content: @Composable () -> Unit) {
-    ElevatedCard(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            content()
+    // Section header above a flat card, like the system Settings app.
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        )
+        Card(
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                content()
+            }
         }
     }
 }
@@ -1071,13 +1075,10 @@ private fun FieldRow(settings: StampSettings, field: StampField, data: com.geost
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 140.dp),
                 )
-                Icon(
-                    if (on) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
-                    contentDescription = if (on) "Enabled" else "Disabled",
-                    tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier.size(24.dp),
-                )
+                Switch(checked = on, onCheckedChange = onToggle)
             }
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -1127,6 +1128,8 @@ fun <T : Labeled> ChoiceRow(title: String, value: T, options: List<T>, onSelect:
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 160.dp),
                 )
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -1268,10 +1271,6 @@ private fun ToggleRow(title: String, subtitle: String? = null, checked: Boolean,
                 thumbContent = if (checked) {
                     { Icon(Icons.Filled.Check, null, modifier = Modifier.size(SwitchDefaults.IconSize)) }
                 } else null,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = MaterialTheme.colorScheme.primary,
-                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                ),
             )
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
