@@ -142,6 +142,7 @@ import com.geostamp.camera.data.VideoColor
 import com.geostamp.camera.data.VideoRes
 import com.geostamp.camera.location.FixCheck
 import com.geostamp.camera.location.FixIssue
+import com.geostamp.camera.stamp.CameraExif
 import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.PhotoSaver
 import com.geostamp.camera.stamp.ShotParams
@@ -524,7 +525,11 @@ fun CameraScreen(
         }
     }
 
-    suspend fun saveStamped(bmp0: Bitmap, lens: LensInfo) {
+    /**
+     * [cameraJpeg] is the camera's own JPEG: its EXIF is carried over, and it's kept as the original if asked.
+     * [cameraRotation] is CameraX's rotation for an in-memory JPEG, null when the file's EXIF already has it.
+     */
+    suspend fun saveStamped(bmp0: Bitmap, lens: LensInfo, cameraJpeg: ByteArray? = null, cameraRotation: Int? = null) {
         val time = ZonedDateTime.now()
         val cfg = settings.snapshot()
         val d = stampDataFor(lens)
@@ -536,9 +541,15 @@ fun CameraScreen(
             model = cfg.deviceBrand.ifBlank { null },
         )
         val result = withContext(Dispatchers.Default) {
+            val source = d.locationSource ?: "none"
+            val site = cfg.siteName.ifBlank { null }
+            val exif = CameraExif.fromShotParams(shotParams) + (cameraJpeg?.let { CameraExif.read(it) } ?: emptyMap())
+            if (cam.keepOriginal && cameraJpeg != null) {
+                PhotoSaver.saveOriginal(context, cameraJpeg, d, time, cfg.number, source, subFolder = site, rotationDegrees = cameraRotation)
+            }
             val bmp = if (photoCrop) PhotoComposer.cropToAspect(bmp0, cam.photoAspect.ratio) else bmp0
             val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label, shotParams)
-            val uri = PhotoSaver.save(context, stamped, d, time, cfg.number, d.locationSource ?: "none", subFolder = cfg.siteName.ifBlank { null })
+            val uri = PhotoSaver.save(context, stamped, d, time, cfg.number, source, subFolder = site, cameraExif = exif)
             val thumbW = 240
             val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
             stamped.recycle()
@@ -572,7 +583,7 @@ fun CameraScreen(
                 try {
                     controller.takeRawAndJpeg(tmp, location)
                     val bmp = withContext(Dispatchers.Default) { PhotoComposer.decodeFile(context, tmp) }
-                    saveStamped(bmp, lens)
+                    saveStamped(bmp, lens, withContext(Dispatchers.IO) { tmp.readBytes() })
                 } finally {
                     tmp.delete()
                 }
@@ -604,7 +615,7 @@ fun CameraScreen(
                     if (enhanced !== bmp && !bmp.isRecycled) bmp.recycle()
                     bmp = enhanced
                 }
-                saveStamped(bmp, lens)
+                saveStamped(bmp, lens, photo.jpeg, photo.rotationDegrees)
             }
         }
     }
@@ -786,7 +797,8 @@ fun CameraScreen(
                     val frameUri = withContext(Dispatchers.Default) {
                         val bmp = if (photoCrop) PhotoComposer.cropToAspect(rawBmp, cam.photoAspect.ratio) else rawBmp
                         val stamped = PhotoComposer.compose(bmp, cfg, d, time, lens.label, shotParams)
-                        val uri = PhotoSaver.save(context, stamped, d, time, cfg.number, d.locationSource ?: "none", prefix = "Frame", subFolder = sub)
+                        val exif = CameraExif.fromShotParams(shotParams) + CameraExif.read(photo.jpeg)
+                        val uri = PhotoSaver.save(context, stamped, d, time, cfg.number, d.locationSource ?: "none", prefix = "Frame", subFolder = sub, cameraExif = exif)
                         val thumbW = 240
                         val thumb = Bitmap.createScaledBitmap(stamped, thumbW, (stamped.height * thumbW / stamped.width).coerceAtLeast(1), true)
                         stamped.recycle()
