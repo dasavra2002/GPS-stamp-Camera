@@ -127,13 +127,14 @@ class BluetoothGpsManager(
                         currentLoc = updated
                         withContext(Dispatchers.Main) {
                             lastLocation.value = currentLoc
-                            if (currentLoc.isAccurate && currentLoc.latitude != null && currentLoc.longitude != null) {
+                            if (currentLoc.isUsableFix) {
                                 repo?.updateExternalLocation(
                                     latitude = currentLoc.latitude!!,
                                     longitude = currentLoc.longitude!!,
                                     altitudeM = currentLoc.altitudeM,
                                     accuracyM = currentLoc.accuracyM,
-                                    bearingDeg = currentLoc.bearingDeg
+                                    bearingDeg = currentLoc.bearingDeg,
+                                    sourceId = currentLoc.sourceId,
                                 )
                             }
                         }
@@ -159,6 +160,7 @@ class BluetoothGpsManager(
             socket?.close()
         } catch (_: Exception) {}
         socket = null
+        repo?.externalLocationLost()
 
         connectionState.value = BluetoothGpsState.DISCONNECTED
         connectedDevice.value = null
