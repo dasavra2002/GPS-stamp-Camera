@@ -8,6 +8,8 @@ data class StampData(
     val longitude: Double? = null,
     val altitude: Double? = null,
     val accuracyM: Float? = null,
+    /** Where the coordinates came from, recorded in the photo's signed proof. */
+    val locationSource: String? = null,
     val title: String? = null,
     val countryCode: String? = null,
     val shortAddress: String? = null,

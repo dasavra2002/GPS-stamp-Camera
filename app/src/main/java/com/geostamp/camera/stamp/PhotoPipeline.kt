@@ -280,12 +280,41 @@ object PhotoComposer {
 object PhotoSaver {
     private const val FOLDER = "GeoStamp"
 
-    /** Saves the stamped photo to Pictures/GeoStamp with GPS and date EXIF. Returns its Uri. */
-    fun save(context: Context, bitmap: Bitmap, data: StampData, time: ZonedDateTime, prefix: String = "GeoStamp", subFolder: String? = null): Uri? {
+    /**
+     * Saves the stamped photo to Pictures/GeoStamp with GPS and date EXIF and a signed
+     * capture proof (see [CaptureProof]). Returns its Uri.
+     *
+     * @param number the photo number printed on the stamp.
+     * @param locationSource where the coordinates came from, recorded in the proof.
+     */
+    fun save(
+        context: Context,
+        bitmap: Bitmap,
+        data: StampData,
+        time: ZonedDateTime,
+        number: Int,
+        locationSource: String,
+        prefix: String = "GeoStamp",
+        subFolder: String? = null,
+    ): Uri? {
         val name = prefix + "_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS", Locale.US).format(ZonedDateTime.now()) + ".jpg"
         val temp = File(context.cacheDir, name)
         temp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
-        writeExif(temp, data, time)
+        val proof = CaptureProof.imageHash(temp.readBytes())?.let { hash ->
+            DeviceKey.sign(
+                ProofPayload(
+                    latitude = data.latitude,
+                    longitude = data.longitude,
+                    altitude = data.altitude,
+                    accuracyM = data.accuracyM,
+                    time = ProofPayload.timeString(time),
+                    number = number,
+                    locationSource = locationSource,
+                    imageSha256 = hash,
+                ),
+            )
+        }
+        writeExif(temp, data, time, proof)
 
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) saveQ(context, temp, name, subFolder) else saveLegacy(context, temp, name, subFolder)
@@ -294,7 +323,7 @@ object PhotoSaver {
         }
     }
 
-    private fun writeExif(file: File, d: StampData, time: ZonedDateTime) {
+    private fun writeExif(file: File, d: StampData, time: ZonedDateTime, proof: ProofRecord?) {
         try {
             val exif = ExifInterface(file)
             if (d.latitude != null && d.longitude != null) exif.setLatLong(d.latitude, d.longitude)
@@ -311,6 +340,8 @@ object PhotoSaver {
             exif.setAttribute(ExifInterface.TAG_SOFTWARE, "GeoStamp Camera")
             exif.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER)
             exif.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL)
+            // Rewriting EXIF leaves the image data alone, so the proof's image hash still matches.
+            proof?.let { exif.setAttribute(ExifInterface.TAG_XMP, CaptureProof.toXmp(it)) }
             exif.saveAttributes()
         } catch (e: Exception) {
             // EXIF is a bonus; the stamp is already burned into the pixels.

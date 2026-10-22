@@ -1010,7 +1010,7 @@ private fun valueFor(field: StampField, settings: StampSettings, d: com.geostamp
         StampField.TIME_ZONE -> "GMT " + java.time.format.DateTimeFormatter.ofPattern("xxx").format(ZonedDateTime.now())
         StampField.NUMBERING -> settings.nextNumber.toString()
         StampField.LOGO -> if (settings.hasCustomLogo) "Custom" else "Default"
-        StampField.QR_CODE -> "Digital Signature"
+        StampField.QR_CODE -> "Location QR Code"
         StampField.PROJECT -> settings.siteName.ifBlank { "-" }
         StampField.NOTE -> settings.note.ifBlank { "-" }
         StampField.PERSON_NAME -> settings.personName.ifBlank { "-" }

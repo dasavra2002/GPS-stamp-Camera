@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import com.geostamp.camera.location.LocationArbiter
 import com.geostamp.camera.stamp.PlusCode
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -38,6 +39,8 @@ import kotlin.math.sqrt
  * Collects everything the live camera watermark needs: GPS, address, Plus Code, weather,
  * map thumbnail, compass heading, magnetic field and sound level.
  */
+private const val EXTERNAL_PROVIDER = "Bluetooth_RTK"
+
 class StampDataRepository(
     private val context: Context,
     private val scope: CoroutineScope,
@@ -54,6 +57,7 @@ class StampDataRepository(
     private var lastWeatherTime = 0L
     private var lastMapLoc: Location? = null
     private var currentLocation: Location? = null
+    private val arbiter = LocationArbiter()
     private var mapType = MapType.SATELLITE
     private var running = false
     private var locationRunning = false
@@ -70,7 +74,9 @@ class StampDataRepository(
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
-            result.lastLocation?.let { onLocation(it) }
+            val loc = result.lastLocation ?: return
+            // An external GNSS receiver that is sending fixes outranks the phone's GPS.
+            if (arbiter.acceptPhoneFix(SystemClock.elapsedRealtime())) onLocation(loc, "phone-gps")
         }
     }
 
@@ -97,7 +103,9 @@ class StampDataRepository(
             .setMinUpdateDistanceMeters(3f)
             .build()
         fused.requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
-        fused.lastLocation.addOnSuccessListener { loc -> if (loc != null) onLocation(loc) }
+        fused.lastLocation.addOnSuccessListener { loc ->
+            if (loc != null && arbiter.acceptPhoneFix(SystemClock.elapsedRealtime())) onLocation(loc, "phone-gps")
+        }
     }
 
     fun stop() {
@@ -117,23 +125,34 @@ class StampDataRepository(
         currentLocation?.let { refreshMap(it) }
     }
 
-    /** Ingests external high-precision GNSS / RTK coordinates (e.g. from Bluetooth receiver). */
+    /**
+     * Ingests external high-precision GNSS / RTK coordinates (e.g. from Bluetooth receiver).
+     * [altitudeM] is height above mean sea level, as NMEA GGA reports it.
+     */
     fun updateExternalLocation(
         latitude: Double,
         longitude: Double,
         altitudeM: Double? = null,
         accuracyM: Float? = null,
         bearingDeg: Float? = null,
+        sourceId: String = "bluetooth-gnss",
     ) {
-        val loc = Location("Bluetooth_RTK").apply {
+        arbiter.onExternalFix(SystemClock.elapsedRealtime())
+        val loc = Location(EXTERNAL_PROVIDER).apply {
             this.latitude = latitude
             this.longitude = longitude
             altitudeM?.let { this.altitude = it }
             accuracyM?.let { this.accuracy = it }
             bearingDeg?.let { this.bearing = it }
             time = System.currentTimeMillis()
+            elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
         }
-        onLocation(loc)
+        onLocation(loc, sourceId)
+    }
+
+    /** The external receiver disconnected; the phone's GPS takes over at its next fix. */
+    fun externalLocationLost() {
+        arbiter.onExternalLost()
     }
 
     fun setSoundEnabled(on: Boolean) {
@@ -151,23 +170,27 @@ class StampDataRepository(
         lastGeocoded = null
         lastWeatherLoc = null
         lastMapLoc = null
-        currentLocation?.let { onLocation(it) }
+        currentLocation?.let { onLocation(it, _data.value.locationSource ?: "phone-gps") }
     }
 
-    private fun onLocation(loc: Location) {
+    private fun onLocation(loc: Location, source: String) {
         currentLocation = loc
-        val mslCapable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        val external = loc.provider == EXTERNAL_PROVIDER
+        // Phone GPS altitude is above the WGS84 ellipsoid; NMEA altitude is already above sea level.
+        val needsMsl = !external && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        if (external) mslJob?.cancel() // a pending phone-altitude conversion must not overwrite this fix
         _data.update {
             it.copy(
                 latitude = loc.latitude,
                 longitude = loc.longitude,
-                // On Android 14+ the sea-level altitude is filled in below instead.
-                altitude = if (!loc.hasAltitude()) null else if (mslCapable && it.altitude != null) it.altitude else loc.altitude,
+                // On Android 14+ the phone's sea-level altitude is filled in below instead.
+                altitude = if (!loc.hasAltitude()) null else if (needsMsl && it.altitude != null) it.altitude else loc.altitude,
                 accuracyM = if (loc.hasAccuracy()) loc.accuracy else null,
+                locationSource = source,
                 plusCode = PlusCode.encode(loc.latitude, loc.longitude),
             )
         }
-        if (mslCapable && loc.hasAltitude()) updateMslAltitude(loc)
+        if (needsMsl && loc.hasAltitude()) updateMslAltitude(loc)
 
         if (lastGeocoded == null || lastGeocoded!!.distanceTo(loc) > 25f) {
             lastGeocoded = loc
@@ -201,6 +224,7 @@ class StampDataRepository(
             } catch (e: Exception) {
                 null
             }
+            if (!isActive) return@launch // a newer fix (e.g. from an RTK receiver) arrived meanwhile
             _data.update { it.copy(altitude = msl ?: loc.altitude) }
         }
     }

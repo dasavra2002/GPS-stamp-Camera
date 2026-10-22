@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.LocationOff
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Public
@@ -173,6 +174,7 @@ fun GalleryScreen(
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var viewMode by remember { mutableStateOf(GalleryViewMode.LIST) }
     var showSignatureDialog by remember { mutableStateOf(false) }
+    var showVerify by remember { mutableStateOf(false) }
 
     fun shareItemWhatsApp(item: GalleryItem) {
         val uri = item.savedUri ?: item.uri
@@ -287,7 +289,12 @@ fun GalleryScreen(
                 val bmp = PhotoComposer.decodeUri(context, item.uri)
                 val stamped = PhotoComposer.compose(bmp, cfg, item.data, item.time, item.meta.camera, item.meta.shotParams)
                 val base = item.name.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
-                PhotoSaver.save(context, stamped, item.data, item.time, prefix = "Stamped_$base", subFolder = cfg.siteName.ifBlank { null }).also {
+                val source = when {
+                    item.data.latitude == null -> "none"
+                    item.edited -> "gallery-manual"
+                    else -> "gallery-exif"
+                }
+                PhotoSaver.save(context, stamped, item.data, item.time, cfg.number, source, prefix = "Stamped_$base", subFolder = cfg.siteName.ifBlank { null }).also {
                     stamped.recycle()
                     if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()
                 }
@@ -337,6 +344,13 @@ fun GalleryScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { showVerify = true }) {
+                        Icon(Icons.Filled.VerifiedUser, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Verify photo")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -601,6 +615,10 @@ fun GalleryScreen(
             shape = MaterialTheme.shapes.extraLarge,
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         )
+    }
+
+    if (showVerify) {
+        VerifyPhotoDialog(onDismiss = { showVerify = false })
     }
 
     if (showSignatureDialog) {

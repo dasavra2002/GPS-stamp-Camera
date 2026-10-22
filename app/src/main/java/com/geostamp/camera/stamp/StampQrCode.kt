@@ -6,36 +6,19 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
-import java.security.MessageDigest
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-object TamperProofSigner {
+/**
+ * The QR code printed on the stamp: a readable summary of where and when the photo was taken.
+ *
+ * It is not proof by itself (anyone can print a QR code). The proof is the signature
+ * stored in the photo's metadata, see [CaptureProof]; the app's Verify screen checks it.
+ */
+object StampQrCode {
 
-    private const val APP_SECRET = "GeoStampCamera_v1_SecuritySalt"
-
-    /** Computes a compact SHA-256 digital signature of the capture details. */
-    fun computeSignature(
-        lat: Double?,
-        lon: Double?,
-        alt: Double?,
-        time: ZonedDateTime,
-        number: Int,
-    ): String {
-        val raw = buildString {
-            append(lat?.let { String.format(Locale.US, "%.6f", it) } ?: "null").append(':')
-            append(lon?.let { String.format(Locale.US, "%.6f", it) } ?: "null").append(':')
-            append(alt?.let { String.format(Locale.US, "%.1f", it) } ?: "null").append(':')
-            append(DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(time)).append(':')
-            append(number).append(':')
-            append(APP_SECRET)
-        }
-        val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it) }.take(12).uppercase(Locale.US)
-    }
-
-    /** Formats a compact, scannable verification text containing the location, time, and signature. */
+    /** Readable text for the QR code: map link, coordinates, time and photo number. */
     fun buildPayload(
         lat: Double?,
         lon: Double?,
@@ -44,7 +27,6 @@ object TamperProofSigner {
         plusCode: String?,
         number: Int,
     ): String {
-        val sig = computeSignature(lat, lon, alt, time, number)
         val isoTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US).format(time)
         return buildString {
             if (lat != null && lon != null) {
@@ -55,7 +37,7 @@ object TamperProofSigner {
             if (alt != null) append(String.format(Locale.US, "ALT: %.0fm\n", alt))
             append("TIME: ").append(isoTime).append('\n')
             append("PHOTO #").append(number).append('\n')
-            append("VERIFIED SIG: ").append(sig)
+            append("VERIFY: GeoStamp app > Gallery > Verify photo")
         }
     }
 

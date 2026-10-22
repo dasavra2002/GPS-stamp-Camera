@@ -246,10 +246,10 @@ object WatermarkRenderer {
         val qrSize = if (showQr) 8.5f * u else 0f
 
         val qrBmp = if (showQr) {
-            val payload = TamperProofSigner.buildPayload(
+            val payload = StampQrCode.buildPayload(
                 data.latitude, data.longitude, data.altitude, time, data.plusCode, config.number,
             )
-            TamperProofSigner.generateQrBitmap(payload, (qrSize * 2).toInt().coerceAtLeast(64))
+            StampQrCode.generateQrBitmap(payload, (qrSize * 2).toInt().coerceAtLeast(64))
         } else null
 
         // Colours

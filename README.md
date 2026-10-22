@@ -5,7 +5,7 @@
 [![Material 3](https://img.shields.io/badge/UI-Material%203%20(Material%20You)-indigo.svg)](https://m3.material.io)
 [![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey.svg)](LICENSE)
 
-An enterprise-grade, professional GPS-stamp camera and proof-of-work inspection platform for Android. Built with **Kotlin**, **Jetpack Compose (Material 3)**, **CameraX 1.5**, and **Camera2 Interop**, it combines Blackmagic-style manual cinematography controls with tamper-proof cryptographic geolocation stamping, multi-sensor telemetry, on-device AI vision, offline map pre-caching, and automated compliance reporting.
+An enterprise-grade, professional GPS-stamp camera and proof-of-work inspection platform for Android. Built with **Kotlin**, **Jetpack Compose (Material 3)**, **CameraX 1.5**, and **Camera2 Interop**, it combines Blackmagic-style manual cinematography controls with hardware-signed, verifiable geolocation stamping, multi-sensor telemetry, on-device AI vision, offline map pre-caching, and automated compliance reporting.
 
 ---
 
@@ -59,7 +59,7 @@ flowchart TD
     subgraph Stamp["Watermark Engine"]
         Frames["4 Frame / Card Styles"]
         Modes["Compact vs Full Data"]
-        Crypto["Tamper-Proof QR (SHA-256)"]
+        Crypto["Signed Capture Proof (Keystore ECDSA)"]
         Lang["13 Indian & World Languages"]
         Coord["DD, DMS, UTM, MGRS, Plus Code"]
     end
@@ -143,7 +143,8 @@ GeoStamp features 4 distinct watermark rendering architectures with a toggle bet
 - **Celestial:** Sunrise, sunset, and solar azimuth.
 - **Sensor Telemetry:** Compass heading with declination, magnetic field flux ($\mu\text{T}$), sound pressure level (dB), and active camera lens optics.
 - **Geofence Check:** Compares current GPS against site coordinates and displays warnings when outside radius limits.
-- **Tamper-Proof Digital Verification QR:** Generates an on-stamp QR code encoding an authenticated cryptographic string (`GEOSTAMP|v1|<lat>|<lon>|<epoch>|<hash>`) allowing clients to verify the photo has not been edited or spoofed.
+- **Signed Capture Proof & Verify Screen:** Every saved photo carries a proof in its XMP metadata: the coordinates, accuracy, time, photo number, location source and a SHA-256 of the JPEG image data, signed with an ECDSA P-256 key that lives in the phone's Android Keystore (StrongBox or TEE) and can't be exported. The key's Google hardware attestation chain is stored with it. **Gallery > Verify photo** checks the signature, that the pixels are unchanged, that the key was made in genuine Android hardware for this app, and whether the bootloader is locked. Edits, crops, re-compression or changed metadata all fail verification. The on-stamp QR code is a readable summary (map link, coordinates, time), not proof by itself.
+  - Limits: proofs from builds signed with different keys don't verify each other as "this app", so set the release signing secrets in CI. Messaging apps that strip metadata remove the proof. Attestation revocation status isn't checked yet.
 - **Multilingual Support:** Watermark labels localized into **13 languages**: English, Hindi (हिंदी), Bengali (বাংলা), Tamil (தமிழ்), Telugu (తెలుగు), Marathi (मराठी), Gujarati (ગુજરાતી), Kannada (ಕನ್ನಡ), Malayalam (മലയാളം), Spanish, French, German, and Arabic.
 
 ---
@@ -228,7 +229,8 @@ The repository includes a comprehensive unit testing suite:
 - [`PlusCodeTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/PlusCodeTest.kt): Verifies Open Location Code generation against real-world benchmark coordinates.
 - [`CoordinateConverterTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/CoordinateConverterTest.kt): Verifies Decimal Degrees to DMS, UTM, and MGRS conversions.
 - [`ExifParsingTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/ExifParsingTest.kt): Validates reading and writing EXIF latitude, longitude, and orientation tags.
-- [`TamperProofSignerTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/TamperProofSignerTest.kt): Verifies cryptographic signature generation, payload packing, and validation.
+- [`CaptureProofTest.kt`](app/src/test/java/com/geostamp/camera/CaptureProofTest.kt): Verifies image-data hashing across EXIF rewrites, ECDSA signing and tamper detection, XMP round-trips, and key attestation parsing.
+- [`StampQrCodeTest.kt`](app/src/test/java/com/geostamp/camera/StampQrCodeTest.kt): Verifies the on-stamp QR text.
 - [`WatermarkStyleTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/WatermarkStyleTest.kt): Tests watermark layout configurations and minimal vs full data filtering.
 - [`ReportGeneratorTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/ReportGeneratorTest.kt): Tests CSV escaping, KML coordinates, and multi-page PDF page calculations with compliance sign-off blocks.
 - [`CameraFeatureListTest.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/test/java/com/geostamp/camera/CameraFeatureListTest.kt): Tests volume key mappings, preserve settings toggles, and video codecs.
@@ -290,7 +292,9 @@ GPS-stamp-Camera/
 │   │   │   │   │   ├── OfflineMapManager.kt       # Tile pre-caching engine for remote sites
 │   │   │   │   │   ├── NetFetchers.kt             # Map tile & Open-Meteo weather HTTP clients
 │   │   │   │   │   ├── CoordinateConverter.kt     # DD, DMS, UTM, MGRS coordinate transformations
-│   │   │   │   │   └── TamperProofSigner.kt       # Cryptographic signature & QR verification engine
+│   │   │   │   │   ├── CaptureProof.kt            # Signed capture proof, verification, attestation parsing
+│   │   │   │   │   ├── DeviceKey.kt               # Android Keystore signing key
+│   │   │   │   │   └── StampQrCode.kt             # On-stamp QR code
 │   │   │   │   ├── report/
 │   │   │   │   │   └── ReportGenerator.kt         # Branded PDF inspection reports, CSV & KML exporters
 │   │   │   │   ├── stamp/
