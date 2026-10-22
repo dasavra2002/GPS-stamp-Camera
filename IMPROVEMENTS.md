@@ -2,7 +2,7 @@
 
 ## 1. Executive Implementation Status
 
-All major architecture and feature items identified across the project reviews and user specifications have been **fully implemented, tested with a 12-suite unit test matrix, verified through Release APK builds, and merged to the main branch**.
+The features below are implemented. Unit tests cover the pure logic (coordinates, parsing, proofs, layout math) and run in CI on every pull request; camera, sensor and UI behaviour still needs checking on a device. Known gaps are listed in the roadmap at the end.
 
 ---
 
@@ -39,15 +39,15 @@ All major architecture and feature items identified across the project reviews a
 
 ### Milestone 4: Material 3 Design System (Material You)
 1. **Design System Foundation (`com.geostamp.camera.ui.theme`):**
-   - [`Color.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/main/java/com/geostamp/camera/ui/theme/Color.kt): Material 3 color roles for dark and light palettes, with high-contrast OLED dark defaults.
-   - [`Type.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/main/java/com/geostamp/camera/ui/theme/Type.kt): Standard M3 typography scale from `displayLarge` down to `labelSmall`.
-   - [`Shape.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/main/java/com/geostamp/camera/ui/theme/Shape.kt): Shape family scale from `extraSmall` (4.dp) to `extraLarge` (28.dp).
-   - [`Theme.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/main/java/com/geostamp/camera/ui/theme/Theme.kt): `GeoStampTheme` supporting Android 12+ dynamic color schemes (`dynamicDarkColorScheme` / `dynamicLightColorScheme`).
+   - [`Color.kt`](app/src/main/java/com/geostamp/camera/ui/theme/Color.kt): Material 3 color roles for dark and light palettes, with high-contrast OLED dark defaults.
+   - [`Type.kt`](app/src/main/java/com/geostamp/camera/ui/theme/Type.kt): Standard M3 typography scale from `displayLarge` down to `labelSmall`.
+   - [`Shape.kt`](app/src/main/java/com/geostamp/camera/ui/theme/Shape.kt): Shape family scale from `extraSmall` (4.dp) to `extraLarge` (28.dp).
+   - [`Theme.kt`](app/src/main/java/com/geostamp/camera/ui/theme/Theme.kt): `GeoStampTheme` supporting Android 12+ dynamic color schemes (`dynamicDarkColorScheme` / `dynamicLightColorScheme`).
 2. **Screen-by-Screen Modernization:**
-   - [`MainActivity.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/main/java/com/geostamp/camera/MainActivity.kt): Modern permission card with M3 buttons, typography, and edge-to-edge surfaces.
-   - [`SettingsScreen.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/main/java/com/geostamp/camera/ui/SettingsScreen.kt): Grouped M3 `ElevatedCard` containers, M3 `ListItem`, `Switch`, `Slider`, `OutlinedTextField`, and `AlertDialog`.
-   - [`GalleryScreen.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/main/java/com/geostamp/camera/ui/GalleryScreen.kt): M3 `TopAppBar`, `AssistChip` export bar, `SingleChoiceSegmentedButtonRow` for view mode switching, and M3 item cards.
-   - [`CameraScreen.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/main/java/com/geostamp/camera/ui/CameraScreen.kt) & [`ProControls.kt`](file:///Users/anirbandas/project_vibe/GPS-stamp-Camera/app/src/main/java/com/geostamp/camera/ui/ProControls.kt): M3 `Surface(tonalElevation = 6.dp)` bottom panel, rounded chips, and slider defaults.
+   - [`MainActivity.kt`](app/src/main/java/com/geostamp/camera/MainActivity.kt): Modern permission card with M3 buttons, typography, and edge-to-edge surfaces.
+   - [`SettingsScreen.kt`](app/src/main/java/com/geostamp/camera/ui/SettingsScreen.kt): Grouped M3 `ElevatedCard` containers, M3 `ListItem`, `Switch`, `Slider`, `OutlinedTextField`, and `AlertDialog`.
+   - [`GalleryScreen.kt`](app/src/main/java/com/geostamp/camera/ui/GalleryScreen.kt): M3 `TopAppBar`, `AssistChip` export bar, `SingleChoiceSegmentedButtonRow` for view mode switching, and M3 item cards.
+   - [`CameraScreen.kt`](app/src/main/java/com/geostamp/camera/ui/CameraScreen.kt) & [`ProControls.kt`](app/src/main/java/com/geostamp/camera/ui/ProControls.kt): M3 `Surface(tonalElevation = 6.dp)` bottom panel, rounded chips, and slider defaults.
 
 ### Milestone 5: Field Productivity & System Integration
 1. **Android Home Screen App Widget (`GeoStampAppWidgetProvider`):** 1-tap Snap, 1-tap Selfie Attendance Punch-In, and live active project/site geofence status.
@@ -124,3 +124,6 @@ All major architecture and feature items identified across the project reviews a
 1. **Video Watermarking for Existing Gallery Videos:** Media3 Transformer pipeline to burn GPS stamps into existing video clips imported from the device gallery.
 2. **Cloud Team Sync:** Optional multi-user sync protocol allowing inspection teams to aggregate photos by project site on a private server (S3 / WebDAV / Google Drive).
 3. **Live Photo / Motion Photo Capture:** Capturing a 1.5s micro-video alongside full-resolution stamped photos.
+4. **CameraScreen architecture:** `CameraScreen.kt` is one ~2,300-line composable that holds both UI and capture logic. Moving the capture flow into a ViewModel would make it testable and survive configuration changes; `StampedCapture` is the first piece pulled out.
+5. **Document mode perspective correction** and **compass declination correction** (both currently missing).
+6. **Attestation revocation check** for capture proofs (Google's revocation list).
