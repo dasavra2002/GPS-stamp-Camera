@@ -414,7 +414,7 @@ class CameraViewModel(
         if (!showProBar) openPanel = null
     }
 
-    fun requestPanel(p: Panel) {
+    fun requestPanel(p: Panel?) {
         if (isRecording && (p == Panel.FPS || p == Panel.FORMAT)) {
             toast("Stop recording to change this")
         } else {
