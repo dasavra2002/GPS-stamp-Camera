@@ -271,6 +271,40 @@ The output APKs are located at:
 - `app/build/outputs/apk/debug/app-debug.apk`
 - `app/build/outputs/apk/release/app-release.apk`
 
+### Keep the same signing key
+
+Android only installs an update over an existing app when both are signed with the same key, and
+photo proofs check the app's signing certificate. The **Build APK** workflow signs release APKs with
+a permanent key when these repository secrets are set (Settings > Secrets and variables > Actions):
+
+| Secret | Value |
+|---|---|
+| `SIGNING_KEYSTORE_BASE64` | The keystore file, base64 encoded |
+| `SIGNING_STORE_PASSWORD` | The keystore password |
+| `SIGNING_KEY_ALIAS` | The key alias, e.g. `geostamp` |
+| `SIGNING_KEY_PASSWORD` | The key password (the same as the keystore password for PKCS12 keystores) |
+
+Create the keystore once with `keytool` (bundled with any JDK and with Android Studio):
+```bash
+keytool -genkeypair -v -keystore geostamp-release.jks -alias geostamp \
+  -keyalg RSA -keysize 4096 -validity 10000
+```
+Then base64 encode it for the secret:
+```bash
+base64 -w 0 geostamp-release.jks          # Linux
+base64 -i geostamp-release.jks | pbcopy   # macOS (copies to clipboard)
+```
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("geostamp-release.jks")) | Set-Clipboard   # Windows
+```
+Keep the `.jks` file and its password backed up and out of the repository. If the key is lost,
+every user has to uninstall the app before installing a build signed with a new key.
+
+Without the secrets, CI signs with a debug key that changes on every run. Each run's summary shows
+which key and certificate signed the APK. To sign locally, set `SIGNING_KEYSTORE` (path to the
+`.jks`), `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD` before
+`./gradlew assembleRelease`.
+
 ---
 
 ## Repository Structure

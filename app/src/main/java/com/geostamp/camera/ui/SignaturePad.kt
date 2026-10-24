@@ -17,28 +17,34 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Business
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.TaskAlt
+import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.Handshake
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -59,8 +65,11 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -144,17 +153,22 @@ class SignaturePadState {
     }
 }
 
+// The pad is always paper-white, whatever the app theme, because the ink is dark navy and the
+// signature is rendered onto a white PDF page.
+private val PadInk = Color(0xFF6B7280)
+
 @Composable
 fun SignaturePad(
     state: SignaturePadState,
     modifier: Modifier = Modifier,
     backgroundColor: Color = Color(0xFFF9FAFB),
 ) {
+    val shape = MaterialTheme.shapes.medium
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shape)
             .background(backgroundColor)
-            .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .onSizeChanged { state.canvasSize = it }
             .pointerInput(Unit) {
                 detectDragGestures(
@@ -178,10 +192,10 @@ fun SignaturePad(
             // Draw guideline
             val lineY = size.height * 0.78f
             drawLine(
-                color = Color.LightGray.copy(alpha = 0.6f),
-                start = Offset(24f, lineY),
-                end = Offset(size.width - 24f, lineY),
-                strokeWidth = 1.5f,
+                color = PadInk.copy(alpha = 0.35f),
+                start = Offset(24.dp.toPx(), lineY),
+                end = Offset(size.width - 24.dp.toPx(), lineY),
+                strokeWidth = 1.dp.toPx(),
                 cap = StrokeCap.Round
             )
 
@@ -237,26 +251,33 @@ fun SignaturePad(
             }
         }
 
-        // Watermark placeholder text when empty
+        // Placeholder text when empty
         if (!state.hasSignature) {
-            Text(
-                text = "Sign here with your finger or stylus",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(8.dp)
-            )
+            ) {
+                Icon(Icons.Filled.Gesture, contentDescription = null, tint = PadInk, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "Sign here",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PadInk,
+                )
+            }
         }
 
-        // Bottom right hint
-        Text(
-            text = "✕",
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.LightGray.copy(alpha = 0.8f),
+        // Signing-line mark
+        Icon(
+            Icons.Filled.Close,
+            contentDescription = null,
+            tint = PadInk.copy(alpha = 0.6f),
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 12.dp, bottom = 12.dp)
+                .padding(start = 10.dp, bottom = 12.dp)
+                .size(16.dp)
         )
     }
 }
@@ -272,6 +293,7 @@ data class InspectionSignoff(
     val approvalStatus: String,
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DigitalSignatureDialog(
     initialInspectorName: String = "",
@@ -306,160 +328,84 @@ fun DigitalSignatureDialog(
         modifier = Modifier
             .fillMaxWidth(0.95f)
             .padding(vertical = 16.dp),
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.Verified,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Official Inspection Sign-Off", style = MaterialTheme.typography.titleLarge)
-            }
-        },
+        icon = { Icon(Icons.Filled.Verified, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("Inspection sign-off") },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                ScrollableTabRow(
+                PrimaryTabRow(
                     selectedTabIndex = selectedTab,
-                    edgePadding = 0.dp,
                     containerColor = Color.Transparent,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("1. Inspector") }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("2. Client / Witness") }
-                    )
-                    Tab(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        text = { Text("3. Status & Audit") }
-                    )
+                    listOf(
+                        "Inspector" to Icons.Filled.Person,
+                        "Client" to Icons.Filled.Handshake,
+                        "Status" to Icons.Filled.TaskAlt,
+                    ).forEachIndexed { i, (label, icon) ->
+                        Tab(
+                            selected = selectedTab == i,
+                            onClick = { selectedTab = i },
+                            text = { Text(label, maxLines = 1) },
+                            icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                            selectedContentColor = MaterialTheme.colorScheme.primary,
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(16.dp))
 
                 when (selectedTab) {
-                    0 -> {
-                        // Inspector Tab
-                        OutlinedTextField(
-                            value = inspectorName,
-                            onValueChange = { inspectorName = it },
-                            label = { Text("Inspector Name") },
-                            leadingIcon = { Icon(Icons.Filled.Person, null) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = inspectorRole,
-                            onValueChange = { inspectorRole = it },
-                            label = { Text("Designation / Title") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Draw Signature", style = MaterialTheme.typography.labelLarge)
-                            Row {
-                                IconButton(
-                                    onClick = { inspectorPadState.undo() },
-                                    enabled = inspectorPadState.strokes.isNotEmpty()
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
-                                }
-                                IconButton(
-                                    onClick = { inspectorPadState.clear() },
-                                    enabled = inspectorPadState.hasSignature
-                                ) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Clear")
-                                }
-                            }
-                        }
+                    0 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SignoffField("Inspector name", inspectorName, Icons.Filled.Person) { inspectorName = it }
+                        SignoffField("Designation / title", inspectorRole, Icons.Filled.Badge) { inspectorRole = it }
+                        SignatureHeader("Signature", inspectorPadState)
                         SignaturePad(
                             state = inspectorPadState,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(130.dp)
+                                .height(140.dp)
                         )
                     }
-                    1 -> {
-                        // Client Tab
-                        OutlinedTextField(
-                            value = clientName,
-                            onValueChange = { clientName = it },
-                            label = { Text("Client / Witness Name") },
-                            leadingIcon = { Icon(Icons.Filled.Person, null) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = clientCompany,
-                            onValueChange = { clientCompany = it },
-                            label = { Text("Company / Organization") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Draw Client Signature (Optional)", style = MaterialTheme.typography.labelLarge)
-                            Row {
-                                IconButton(
-                                    onClick = { clientPadState.undo() },
-                                    enabled = clientPadState.strokes.isNotEmpty()
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
-                                }
-                                IconButton(
-                                    onClick = { clientPadState.clear() },
-                                    enabled = clientPadState.hasSignature
-                                ) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Clear")
-                                }
-                            }
-                        }
+                    1 -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SignoffField("Client / witness name", clientName, Icons.Filled.Person) { clientName = it }
+                        SignoffField("Company / organization", clientCompany, Icons.Filled.Business) { clientCompany = it }
+                        SignatureHeader("Signature (optional)", clientPadState)
                         SignaturePad(
                             state = clientPadState,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(130.dp)
+                                .height(140.dp)
                         )
                     }
-                    2 -> {
-                        // Status & Audit Tab
-                        Text("Compliance Status", style = MaterialTheme.typography.labelLarge)
-                        Spacer(Modifier.height(6.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            statusOptions.forEach { status ->
-                                FilterChip(
+                    2 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Compliance status",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            statusOptions.forEachIndexed { i, status ->
+                                StatusOption(
+                                    label = status,
+                                    icon = when (i) {
+                                        0 -> Icons.Filled.CheckCircle
+                                        1 -> Icons.Filled.Info
+                                        else -> Icons.Filled.Warning
+                                    },
+                                    tint = when (i) {
+                                        0 -> MaterialTheme.colorScheme.tertiary
+                                        1 -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.error
+                                    },
                                     selected = approvalStatus == status,
-                                    onClick = { approvalStatus = status },
-                                    label = { Text(status) },
-                                    leadingIcon = if (approvalStatus == status) {
-                                        { Icon(Icons.Filled.Check, null, modifier = Modifier.size(16.dp)) }
-                                    } else null,
-                                    modifier = Modifier.fillMaxWidth()
+                                    onSelect = { approvalStatus = status },
                                 )
                             }
                         }
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            "A cryptographically hashed certificate seal (SHA-256) will be embedded automatically along with geolocation, timestamp, and audit metadata.",
+                            "Names, signatures and this status are added to the PDF report together with each photo's location and time.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -480,17 +426,18 @@ fun DigitalSignatureDialog(
                         approvalStatus = approvalStatus,
                     )
                     onConfirm(signoff)
-                }
+                },
+                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
             ) {
-                Icon(Icons.Filled.Draw, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Sign & Generate PDF")
+                Icon(Icons.Filled.Draw, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Sign & create PDF")
             }
         },
         dismissButton = {
             Row {
                 TextButton(onClick = onSkipSignatures) {
-                    Text("Skip Signatures")
+                    Text("Skip signing")
                 }
                 TextButton(onClick = onDismiss) {
                     Text("Cancel")
@@ -498,4 +445,69 @@ fun DigitalSignatureDialog(
             }
         }
     )
+}
+
+@Composable
+private fun SignoffField(label: String, value: String, icon: ImageVector, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        leadingIcon = { Icon(icon, contentDescription = null) },
+        singleLine = true,
+        shape = MaterialTheme.shapes.small,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            focusedLabelColor = MaterialTheme.colorScheme.primary,
+            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun SignatureHeader(label: String, state: SignaturePadState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = { state.undo() }, enabled = state.strokes.isNotEmpty()) {
+            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+        }
+        IconButton(onClick = { state.clear() }, enabled = state.hasSignature) {
+            Icon(Icons.Filled.DeleteOutline, contentDescription = "Clear signature")
+        }
+    }
+}
+
+@Composable
+private fun StatusOption(label: String, icon: ImageVector, tint: Color, selected: Boolean, onSelect: () -> Unit) {
+    val shape = MaterialTheme.shapes.medium
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
+            .border(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, shape)
+            .selectable(selected = selected, onClick = onSelect, role = Role.RadioButton)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+        RadioButton(selected = selected, onClick = null)
+    }
 }

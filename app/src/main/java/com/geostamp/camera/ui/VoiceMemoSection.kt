@@ -19,19 +19,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -49,11 +48,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.geostamp.camera.audio.VoiceMemoManager
 import com.geostamp.camera.audio.VoiceRecorderState
+import com.geostamp.camera.ui.theme.CameraColors
 import java.io.File
 import java.util.Locale
 
@@ -101,238 +101,222 @@ fun VoiceMemoSection(
         return String.format(Locale.US, "%02d:%02d", m, s)
     }
 
-    ElevatedCard(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
+    fun startRecording() {
+        val sanitizedName = photoName.replace(Regex("[^a-zA-Z0-9_.-]"), "_")
+        val audioFile = File(context.getExternalFilesDir("voice_memos"), "${sanitizedName}_memo.m4a")
+        recordingDurationSec = 0
+        isRecording = true
+        errorMessage = null
+        memoManager.startRecording(
+            outputFile = audioFile,
+            onTick = { sec, _ ->
+                recordingDurationSec = sec
+            },
+            onError = { err ->
+                isRecording = false
+                errorMessage = err
+            }
         )
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+    }
+
+    fun startDictation() {
+        if (isTranscribing) return
+        isTranscribing = true
+        errorMessage = null
+        memoManager.startSpeechToText(
+            onResult = { text ->
+                isTranscribing = false
+                onSpeechTranscribed(text)
+            },
+            onError = { err ->
+                isTranscribing = false
+                errorMessage = err
+            }
+        )
+    }
+
+    SectionCard(title = "Voice memo", icon = Icons.Filled.Mic, modifier = modifier) {
+        if (isRecording) {
+            // Currently recording
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f), MaterialTheme.shapes.medium)
+                    .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Mic,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .scale(pulseScale)
+                            .background(CameraColors.Recording, CircleShape)
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(10.dp))
                     Text(
-                        "Voice Note / Field Memo",
-                        style = MaterialTheme.typography.titleSmall,
+                        formatDuration(recordingDurationSec),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
 
-                AssistChip(
+                Button(
                     onClick = {
-                        if (!isTranscribing) {
-                            isTranscribing = true
-                            memoManager.startSpeechToText(
-                                onResult = { text ->
-                                    isTranscribing = false
-                                    onSpeechTranscribed(text)
+                        val recordedFile = memoManager.stopRecording()
+                        isRecording = false
+                        if (recordedFile != null && recordedFile.exists() && recordedFile.length() > 0) {
+                            onAudioRecorded(recordedFile.absolutePath, recordingDurationSec)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                ) {
+                    Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Stop")
+                }
+            }
+        } else if (audioMemoPath != null) {
+            // Saved audio memo exists
+            val audioFile = File(audioMemoPath)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.medium)
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilledTonalIconButton(
+                    onClick = {
+                        if (isPlaying) {
+                            memoManager.stopPlayback()
+                            isPlaying = false
+                        } else {
+                            isPlaying = true
+                            memoManager.startPlayback(
+                                file = audioFile,
+                                onProgress = { cur, tot ->
+                                    playbackCurrentSec = cur
+                                    playbackTotalSec = tot
                                 },
-                                onError = { err ->
-                                    isTranscribing = false
-                                    errorMessage = err
+                                onComplete = {
+                                    isPlaying = false
+                                    playbackCurrentSec = 0
                                 }
                             )
                         }
-                    },
-                    label = {
-                        Text(if (isTranscribing) "Listening…" else "Dictate Note")
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Filled.RecordVoiceOver,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = if (isTranscribing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                        )
                     }
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            if (audioMemoPath == null && !isRecording) {
-                // No recording present
-                OutlinedButton(
-                    onClick = {
-                        val sanitizedName = photoName.replace(Regex("[^a-zA-Z0-9_.-]"), "_")
-                        val audioFile = File(context.getExternalFilesDir("voice_memos"), "${sanitizedName}_memo.m4a")
-                        recordingDurationSec = 0
-                        isRecording = true
-                        errorMessage = null
-                        memoManager.startRecording(
-                            outputFile = audioFile,
-                            onTick = { sec, _ ->
-                                recordingDurationSec = sec
-                            },
-                            onError = { err ->
-                                isRecording = false
-                                errorMessage = err
-                            }
-                        )
-                    },
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Record Audio Memo")
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                    )
                 }
-            } else if (isRecording) {
-                // Currently recording
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .scale(pulseScale)
-                                .background(Color(0xFFE53935), CircleShape)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            "Recording: ${formatDuration(recordingDurationSec)}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
 
-                    Button(
-                        onClick = {
-                            val recordedFile = memoManager.stopRecording()
-                            isRecording = false
-                            if (recordedFile != null && recordedFile.exists() && recordedFile.length() > 0) {
-                                onAudioRecorded(recordedFile.absolutePath, recordingDurationSec)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Filled.Stop, contentDescription = "Stop", modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Finish")
-                    }
-                }
-            } else if (audioMemoPath != null) {
-                // Saved audio memo exists
-                val audioFile = File(audioMemoPath)
-                Row(
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .weight(1f)
+                        .padding(horizontal = 10.dp)
                 ) {
-                    IconButton(
-                        onClick = {
-                            if (isPlaying) {
-                                memoManager.stopPlayback()
-                                isPlaying = false
-                            } else {
-                                isPlaying = true
-                                memoManager.startPlayback(
-                                    file = audioFile,
-                                    onProgress = { cur, tot ->
-                                        playbackCurrentSec = cur
-                                        playbackTotalSec = tot
-                                    },
-                                    onComplete = {
-                                        isPlaying = false
-                                        playbackCurrentSec = 0
-                                    }
-                                )
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
+                    val progress = if (playbackTotalSec > 0) {
+                        (playbackCurrentSec.toFloat() / playbackTotalSec).coerceIn(0f, 1f)
+                    } else 0f
 
-                    Column(
+                    LinearProgressIndicator(
+                        progress = { progress },
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 8.dp)
+                            .fillMaxWidth()
+                            .height(4.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        val progress = if (playbackTotalSec > 0) {
-                            (playbackCurrentSec.toFloat() / playbackTotalSec).coerceIn(0f, 1f)
-                        } else 0f
-
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        Text(
+                            formatDuration(playbackCurrentSec),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                formatDuration(playbackCurrentSec),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                if (playbackTotalSec > 0) formatDuration(playbackTotalSec) else "Audio Attached",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = {
-                            memoManager.stopAll()
-                            isPlaying = false
-                            try {
-                                if (audioFile.exists()) audioFile.delete()
-                            } catch (_: Exception) {}
-                            onAudioDeleted()
-                        }
-                    ) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = "Delete Audio Memo",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
+                        Text(
+                            if (playbackTotalSec > 0) formatDuration(playbackTotalSec) else "Memo attached",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-            }
 
-            AnimatedVisibility(visible = errorMessage != null) {
-                errorMessage?.let {
+                IconButton(
+                    onClick = {
+                        memoManager.stopAll()
+                        isPlaying = false
+                        try {
+                            if (audioFile.exists()) audioFile.delete()
+                        } catch (_: Exception) {}
+                        onAudioDeleted()
+                    }
+                ) {
+                    Icon(
+                        Icons.Filled.DeleteOutline,
+                        contentDescription = "Delete voice memo",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+
+        if (!isRecording) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (audioMemoPath == null) {
+                    OutlinedButton(
+                        onClick = { startRecording() },
+                        contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Record memo", maxLines = 1)
+                    }
+                }
+                FilledTonalButton(
+                    onClick = { startDictation() },
+                    enabled = !isTranscribing,
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Filled.RecordVoiceOver, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isTranscribing) "Listening…" else "Dictate note", maxLines = 1)
+                }
+            }
+            Text(
+                "A memo is saved with the photo. Dictation adds the words to the stamp note.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        AnimatedVisibility(visible = errorMessage != null) {
+            errorMessage?.let {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.ErrorOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(top = 6.dp)
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
             }
