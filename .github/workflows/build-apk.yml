@@ -72,7 +72,13 @@ jobs:
       - name: Show signing certificate
         run: |
           apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)"
-          certs="$("$apksigner" verify --print-certs app/build/outputs/apk/release/*.apk | grep -E 'Signer #1 certificate (DN|SHA-256)')"
+          out="$("$apksigner" verify --print-certs app/build/outputs/apk/release/*.apk)"
+          certs="$(echo "$out" | grep -E 'certificate (DN|SHA-256)' || true)"
+          if [ -z "$certs" ]; then
+            echo "$out"
+            echo "::error::apksigner printed no signing certificate."
+            exit 1
+          fi
           echo "$certs"
           if [ -n "$SIGNING_KEYSTORE" ]; then key="release key from secrets"; else key="CI debug key (changes every run)"; fi
           { echo "### APK signing"; echo; echo "Signed with: **$key**"; echo; echo '```'; echo "$certs"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
