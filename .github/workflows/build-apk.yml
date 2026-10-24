@@ -32,8 +32,17 @@ jobs:
       - name: Decode signing key
         env:
           KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
+            for name in SIGNING_STORE_PASSWORD SIGNING_KEY_ALIAS SIGNING_KEY_PASSWORD; do
+              if [ -z "${!name}" ]; then
+                echo "::error::SIGNING_KEYSTORE_BASE64 is set but the $name secret is missing."
+                exit 1
+              fi
+            done
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
             echo "SIGNING_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
           fi
@@ -58,6 +67,21 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --stacktrace
+
+      # Shows which certificate signed the APK, so you can check that every build uses the same key.
+      - name: Show signing certificate
+        run: |
+          apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)"
+          out="$("$apksigner" verify --print-certs app/build/outputs/apk/release/*.apk)"
+          certs="$(echo "$out" | grep -E 'certificate (DN|SHA-256)' || true)"
+          if [ -z "$certs" ]; then
+            echo "$out"
+            echo "::error::apksigner printed no signing certificate."
+            exit 1
+          fi
+          echo "$certs"
+          if [ -n "$SIGNING_KEYSTORE" ]; then key="release key from secrets"; else key="CI debug key (changes every run)"; fi
+          { echo "### APK signing"; echo; echo "Signed with: **$key**"; echo; echo '```'; echo "$certs"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
