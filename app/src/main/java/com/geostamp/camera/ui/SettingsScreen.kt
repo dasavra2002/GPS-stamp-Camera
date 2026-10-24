@@ -924,6 +924,11 @@ private fun GeneralTabContent(
     settings: StampSettings,
     cam: CameraSettings?,
 ) {
+    val context = LocalContext.current
+    val versionName = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -972,7 +977,7 @@ private fun GeneralTabContent(
             SettingsGroupCard(title = "About & map attribution") {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(
-                        "GeoStamp Pro Camera v1.3.0",
+                        if (versionName != null) "GeoStamp Pro Camera v$versionName" else "GeoStamp Pro Camera",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
