@@ -308,7 +308,7 @@ object ReportGenerator {
                 canvas.drawText(clientCompany.ifBlank { "Witness Signatory" }, clientX, sigY + sigBoxH + 24f, subPaint)
 
                 // Tamper-evident seal notice at bottom of card
-                val sealText = "Cryptographically stamped with on-device SHA-256 HMAC integrity verification."
+                val sealText = "Signed on site with GeoStamp Camera."
                 canvas.drawText(sealText, margin + 14f, signCardTop + signCardH - 10f, subPaint)
             }
 

@@ -30,7 +30,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Card
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -1001,25 +1000,7 @@ private fun GeneralTabContent(
 
 @Composable
 private fun SettingsGroupCard(title: String, content: @Composable () -> Unit) {
-    // Section header above a flat card, like the system Settings app.
-    Column(Modifier.fillMaxWidth()) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-        )
-        Card(
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                content()
-            }
-        }
-    }
+    SectionCard(title = title, contentPadding = PaddingValues(vertical = 4.dp), spacing = 0.dp) { content() }
 }
 
 /** Current value shown on the right of each row. */

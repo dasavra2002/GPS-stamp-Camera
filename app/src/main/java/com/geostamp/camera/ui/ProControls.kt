@@ -6,6 +6,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.util.Size
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,7 +21,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -41,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +68,7 @@ import com.geostamp.camera.data.PhotoFormat
 import com.geostamp.camera.data.VideoAspect
 import com.geostamp.camera.data.VideoColor
 import com.geostamp.camera.data.VideoRes
+import com.geostamp.camera.ui.theme.CameraColors
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -102,7 +109,7 @@ fun InfoBar(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.88f),
+        color = CameraColors.ScrimStrong,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -111,32 +118,46 @@ fun InfoBar(
                 .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 6.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             @Composable
-            fun seg(title: String, value: String, isManual: Boolean, panel: Panel) {
+            fun seg(title: String, value: String, isManual: Boolean, panel: Panel, icon: ImageVector? = null) {
                 val active = open == panel
+                val shape = MaterialTheme.shapes.small
                 Column(
                     Modifier
-                        .clip(MaterialTheme.shapes.extraSmall)
-                        .background(if (active) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent)
+                        .clip(shape)
+                        .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Transparent)
+                        .border(1.dp, if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else Color.Transparent, shape)
                         .clickable(enabled = enabled) { onOpen(if (active) null else panel) }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // "A" marks a value the camera is choosing automatically.
                     Text(
                         title + if (!isManual) " A" else "",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = CameraColors.OnScrimMuted,
                         fontSize = 9.sp,
                         fontFamily = Mono,
+                        letterSpacing = 0.5.sp,
                     )
-                    Text(
-                        value,
-                        color = if (isManual) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = Mono,
-                        maxLines = 1,
-                    )
+                    if (icon != null) {
+                        Icon(
+                            icon,
+                            contentDescription = null,
+                            tint = if (active) MaterialTheme.colorScheme.primary else CameraColors.OnScrim,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    } else {
+                        Text(
+                            value,
+                            color = if (isManual || active) MaterialTheme.colorScheme.primary else CameraColors.OnScrim,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = Mono,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
             if (mode.isVideo) seg("FPS", "$fps", true, Panel.FPS)
@@ -149,7 +170,7 @@ fun InfoBar(
                 seg("FOCUS", Manual.focusLabel(manual.focusDiopters), manual.focusDiopters != null, Panel.FOCUS)
             }
             seg("FORMAT", formatText, true, Panel.FORMAT)
-            seg("VIEW", "▦", true, Panel.DISPLAY)
+            seg("VIEW", "", true, Panel.DISPLAY, icon = Icons.Filled.GridOn)
         }
     }
 }
@@ -158,34 +179,10 @@ fun InfoBar(
 // Control panels (bottom), one per info-bar value.
 // ------------------------------------------------------------------------------------------
 
+/** Option chip inside a control panel; same look as the quick-tool chips on the camera screen. */
 @Composable
 fun ProChip(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-    Surface(
-        shape = MaterialTheme.shapes.small,
-        color = when {
-            !enabled -> MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.4f)
-            selected -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-        ),
-        modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
-    ) {
-        Text(
-            text,
-            color = when {
-                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                selected -> MaterialTheme.colorScheme.onPrimary
-                else -> MaterialTheme.colorScheme.onSurface
-            },
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = Mono,
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-        )
-    }
+    CameraChip(text = text, on = selected, enabled = enabled, onClick = onClick)
 }
 
 @Composable
@@ -204,10 +201,11 @@ private fun ChipRow(content: @Composable () -> Unit) {
 private fun PanelLabel(text: String) {
     Text(
         text,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = CameraColors.OnScrimMuted,
         style = MaterialTheme.typography.labelSmall,
         fontFamily = Mono,
-        modifier = Modifier.padding(start = 14.dp, top = 6.dp),
+        letterSpacing = 0.5.sp,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
     )
 }
 
@@ -221,9 +219,11 @@ private fun ProSlider(value: Float, range: ClosedFloatingPointRange<Float>, step
         colors = SliderDefaults.colors(
             thumbColor = MaterialTheme.colorScheme.primary,
             activeTrackColor = MaterialTheme.colorScheme.primary,
-            inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+            inactiveTrackColor = CameraColors.ScrimBorder,
+            activeTickColor = MaterialTheme.colorScheme.onPrimary,
+            inactiveTickColor = CameraColors.OnScrimMuted,
         ),
-        modifier = Modifier.padding(horizontal = 14.dp),
+        modifier = Modifier.padding(horizontal = 16.dp),
     )
 }
 
@@ -240,16 +240,25 @@ fun ControlPanel(
     photoSizes: List<Size>,
 ) {
     Surface(
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
-        tonalElevation = 6.dp,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        color = CameraColors.ScrimStrong,
+        border = BorderStroke(1.dp, CameraColors.ScrimBorder),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .padding(top = 4.dp, bottom = 10.dp),
         ) {
+            // Grab handle, so the panel reads as a sheet over the viewfinder.
+            Box(
+                Modifier
+                    .padding(top = 4.dp, bottom = 2.dp)
+                    .size(width = 32.dp, height = 4.dp)
+                    .clip(CircleShape)
+                    .background(CameraColors.OnScrimDisabled)
+                    .align(Alignment.CenterHorizontally),
+            )
             when (panel) {
             Panel.FPS -> {
                 PanelLabel("FRAME RATE")
@@ -493,7 +502,7 @@ fun LevelIndicator(roll: Float, modifier: Modifier = Modifier) {
         val cx = size.width / 2f
         val cy = size.height / 2f
         val half = size.width * 0.18f
-        val color = if (level) Color(0xFF66BB6A) else Color(0xCCFFFFFF)
+        val color = if (level) CameraColors.GoodFix else CameraColors.OnScrim.copy(alpha = 0.8f)
         // fixed reference ticks
         drawLine(Color(0x88FFFFFF), Offset(cx - half - 16.dp.toPx(), cy), Offset(cx - half - 4.dp.toPx(), cy), 2.dp.toPx())
         drawLine(Color(0x88FFFFFF), Offset(cx + half + 4.dp.toPx(), cy), Offset(cx + half + 16.dp.toPx(), cy), 2.dp.toPx())
@@ -508,8 +517,8 @@ fun HistogramView(bins: IntArray?, modifier: Modifier = Modifier) {
     Box(
         modifier
             .size(width = 84.dp, height = 32.dp)
-            .background(Color(0x80000000), RoundedCornerShape(8.dp))
-            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+            .background(CameraColors.Scrim, RoundedCornerShape(8.dp))
+            .border(1.dp, CameraColors.ScrimBorder, RoundedCornerShape(8.dp))
             .padding(2.5.dp),
     ) {
         if (bins == null) return@Box
@@ -527,7 +536,7 @@ fun HistogramView(bins: IntArray?, modifier: Modifier = Modifier) {
                 lineTo(size.width, size.height)
                 close()
             }
-            drawPath(path, Color(0xB3FFFFFF))
+            drawPath(path, CameraColors.OnScrimMuted)
             // clipping warnings
             if (bins.first() > max * 0.5f) drawRect(Color(0xFF42A5F5), Offset.Zero, GSize(2.dp.toPx(), size.height))
             if (bins.last() > max * 0.5f) drawRect(Color(0xFFEF5350), Offset(size.width - 2.dp.toPx(), 0f), GSize(2.dp.toPx(), size.height))
@@ -542,11 +551,13 @@ fun RecTimer(seconds: Long, modifier: Modifier = Modifier) {
     val s = seconds % 60
     Row(
         modifier
-            .background(Color(0xCCB71C1C), RoundedCornerShape(4.dp))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .background(CameraColors.Recording, CircleShape)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("● REC ", color = Color.White, fontSize = 12.sp, fontFamily = Mono, fontWeight = FontWeight.Bold)
-        Text(String.format(Locale.US, "%02d:%02d:%02d", h, m, s), color = Color.White, fontSize = 12.sp, fontFamily = Mono)
+        Box(Modifier.size(8.dp).background(CameraColors.OnScrim, CircleShape))
+        Text("REC", color = CameraColors.OnScrim, fontSize = 12.sp, fontFamily = Mono, fontWeight = FontWeight.Bold)
+        Text(String.format(Locale.US, "%02d:%02d:%02d", h, m, s), color = CameraColors.OnScrim, fontSize = 12.sp, fontFamily = Mono)
     }
 }
