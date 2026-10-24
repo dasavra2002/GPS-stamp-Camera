@@ -2,6 +2,7 @@ package com.geostamp.camera.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,20 +11,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.BluetoothDisabled
-import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.SatelliteAlt
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -37,13 +38,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.geostamp.camera.location.BluetoothDeviceInfo
 import com.geostamp.camera.location.BluetoothGpsManager
 import com.geostamp.camera.location.BluetoothGpsState
-import com.geostamp.camera.location.NmeaFixQuality
 import java.util.Locale
 
 @Composable
@@ -51,7 +52,6 @@ fun BluetoothGpsSection(
     manager: BluetoothGpsManager,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
     val connectionState = manager.connectionState.value
     val connectedDevice = manager.connectedDevice.value
     val loc = manager.lastLocation.value
@@ -59,45 +59,45 @@ fun BluetoothGpsSection(
 
     var pairedDevices by remember { mutableStateOf(manager.getPairedDevices()) }
 
-    Column(modifier = modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+    Column(modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
         if (!manager.isSupported) {
-            Text(
-                "Bluetooth hardware is not supported on this device.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            StatusLine(
+                Icons.Filled.BluetoothDisabled,
+                "This device has no Bluetooth.",
+                MaterialTheme.colorScheme.onSurfaceVariant,
             )
             return
         }
 
         if (!manager.isEnabled) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.BluetoothDisabled, null, tint = MaterialTheme.colorScheme.error)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "Bluetooth is turned off. Please turn on Bluetooth in device settings.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
+            StatusLine(
+                Icons.Filled.BluetoothDisabled,
+                "Bluetooth is off. Turn it on in system settings to use an external receiver.",
+                MaterialTheme.colorScheme.error,
+            )
             return
         }
 
         when (connectionState) {
             BluetoothGpsState.DISCONNECTED -> {
                 Text(
-                    "Connect an external Bluetooth surveying GNSS/RTK receiver (Garmin GLO, Bad Elf, Trimble, Emlid Reach, ArduSimple) for centimeter-level accuracy.",
+                    "Connect a Bluetooth GNSS or RTK receiver (Garmin GLO, Bad Elf, Trimble, Emlid Reach, ArduSimple) for centimeter-level accuracy.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Paired Bluetooth Receivers", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        "Paired receivers",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     IconButton(onClick = { pairedDevices = manager.getPairedDevices() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh paired devices")
                     }
@@ -105,170 +105,213 @@ fun BluetoothGpsSection(
 
                 if (pairedDevices.isEmpty()) {
                     Text(
-                        "No paired Bluetooth devices found. Pair your GNSS receiver in Android Settings first, then tap Refresh.",
+                        "No paired devices. Pair your receiver in Android Bluetooth settings, then tap refresh.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    pairedDevices.forEach { device ->
+                    pairedDevices.forEachIndexed { i, device ->
+                        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                                .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            DeviceAvatar(Icons.Filled.Bluetooth, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+                            Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(device.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                                Text(device.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    device.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    device.address,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-
-                            Button(
-                                onClick = { manager.connect(device) },
-                                shape = MaterialTheme.shapes.small
-                            ) {
-                                Icon(Icons.Filled.Bluetooth, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
+                            Spacer(Modifier.width(8.dp))
+                            FilledTonalButton(onClick = { manager.connect(device) }) {
                                 Text("Connect")
                             }
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                     }
                 }
             }
 
             BluetoothGpsState.CONNECTING -> {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
-                    Spacer(Modifier.height(8.dp))
-                    Text("Connecting to receiver…", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = { manager.disconnect() }) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Text(
+                        "Connecting to receiver…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { manager.disconnect() }) {
                         Text("Cancel")
                     }
                 }
             }
 
             BluetoothGpsState.CONNECTED -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DeviceAvatar(Icons.Filled.BluetoothConnected, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            connectedDevice?.name ?: "External GNSS",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            connectedDevice?.address ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = { manager.disconnect() },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Disconnect")
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // Live GNSS telemetry
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(12.dp))
-                        .padding(14.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.medium)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.BluetoothConnected, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(22.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    connectedDevice?.name ?: "External GNSS",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    connectedDevice?.address ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = { manager.disconnect() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer
-                            ),
-                            shape = MaterialTheme.shapes.small
-                        ) {
-                            Text("Disconnect")
-                        }
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Spacer(Modifier.height(10.dp))
-
-                    // Live GNSS Telemetry Box
                     if (loc != null) {
-                        val isRtk = loc.isRtk
-                        val badgeBg = if (isRtk) Color(0xFFE8F5E9) else Color(0xFFE3F2FD)
-                        val badgeFg = if (isRtk) Color(0xFF2E7D32) else Color(0xFF1565C0)
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Surface(color = badgeBg, shape = RoundedCornerShape(6.dp)) {
+                            Surface(
+                                color = if (loc.isRtk) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                                shape = CircleShape
+                            ) {
                                 Text(
                                     loc.fixQuality.label,
-                                    color = badgeFg,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    color = if (loc.isRtk) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                 )
                             }
 
-                            Text(
-                                "🛰️ ${loc.satellitesInUse} Sats • HDOP: ${loc.hdop?.let { String.format(Locale.US, "%.2f", it) } ?: "-"}",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Filled.SatelliteAlt,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "${loc.satellitesInUse} sats · HDOP ${loc.hdop?.let { String.format(Locale.US, "%.2f", it) } ?: "-"}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
-
-                        Spacer(Modifier.height(8.dp))
 
                         if (loc.latitude != null && loc.longitude != null) {
-                            Text(
-                                String.format(Locale.US, "Lat: %.7f°, Lon: %.7f°", loc.latitude, loc.longitude),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Telemetry("Latitude", String.format(Locale.US, "%.7f°", loc.latitude), Modifier.weight(1f))
+                                Telemetry("Longitude", String.format(Locale.US, "%.7f°", loc.longitude), Modifier.weight(1f))
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Telemetry(
+                                "Altitude (MSL)",
+                                loc.altitudeM?.let { String.format(Locale.US, "%.2f m", it) } ?: "-",
+                                Modifier.weight(1f)
+                            )
+                            Telemetry(
+                                "Accuracy",
+                                loc.accuracyM?.let { String.format(Locale.US, "±%.2f m", it) } ?: "-",
+                                Modifier.weight(1f),
+                                valueColor = loc.accuracyM?.let {
+                                    if (it <= 0.1f) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+                                } ?: MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        loc.altitudeM?.let {
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
                             Text(
-                                String.format(Locale.US, "MSL Altitude: %.2f m", it),
+                                "Waiting for the first position from the receiver…",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        loc.accuracyM?.let {
-                            Text(
-                                String.format(Locale.US, "Estimated Accuracy: ±%.2f m", it),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (it <= 0.1f) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    } else {
-                        Text(
-                            "Waiting for initial NMEA sentences from receiver…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
             }
         }
 
         if (error != null) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                error,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error
-            )
+            Spacer(Modifier.height(8.dp))
+            StatusLine(Icons.Filled.ErrorOutline, error, MaterialTheme.colorScheme.error)
         }
+    }
+}
+
+@Composable
+private fun StatusLine(icon: ImageVector, text: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = color)
+    }
+}
+
+@Composable
+private fun DeviceAvatar(icon: ImageVector, container: Color, content: Color) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .background(container, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun Telemetry(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = MaterialTheme.colorScheme.onSurface) {
+    Column(modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Medium,
+            color = valueColor,
+            maxLines = 1
+        )
     }
 }

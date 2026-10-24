@@ -13,6 +13,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -996,52 +1005,46 @@ private fun EditDetailsScreen(
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState()),
         ) {
-            // Live watermark preview card
-            val previewCfg = settings.snapshot()
-            val stampPreview = remember(
-                lat, lon, title, country, shortAddr, address, plusCode, altitude, date, clock, offset,
-                temp, humidity, wind, pressure, compass, magnetic, sound, map, previewCfg,
-            ) {
-                WatermarkRenderer.render(900, previewCfg, formData(), currentTime(), item.meta.camera)
-            }
-            stampPreview?.let {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .clip(MaterialTheme.shapes.large)
-                        .background(MaterialTheme.colorScheme.surfaceContainerLowest),
-                ) {
-                    Image(
-                        it.asImageBitmap(),
-                        contentDescription = "Stamp preview",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                // Location Section Card
-                ElevatedCard(
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    modifier = Modifier.fillMaxWidth(),
+                // Live watermark preview
+                val previewCfg = settings.snapshot()
+                val stampPreview = remember(
+                    lat, lon, title, country, shortAddr, address, plusCode, altitude, date, clock, offset,
+                    temp, humidity, wind, pressure, compass, magnetic, sound, map, previewCfg,
                 ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Location", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Field("Latitude", lat, KeyboardType.Decimal, Modifier.weight(1f)) { lat = it }
-                            Field("Longitude", lon, KeyboardType.Decimal, Modifier.weight(1f)) { lon = it }
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Field("Search place or address", search, KeyboardType.Text, Modifier.weight(1f)) { search = it }
-                            FilledTonalButton(onClick = {
+                    WatermarkRenderer.render(900, previewCfg, formData(), currentTime(), item.meta.camera)
+                }
+                stampPreview?.let {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.large)
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large),
+                    ) {
+                        Image(
+                            it.asImageBitmap(),
+                            contentDescription = "Stamp preview",
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                SectionCard(title = "Location", icon = Icons.Filled.LocationOn) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Field("Latitude", lat, KeyboardType.Decimal, Modifier.weight(1f)) { lat = it }
+                        Field("Longitude", lon, KeyboardType.Decimal, Modifier.weight(1f)) { lon = it }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Field("Search place or address", search, KeyboardType.Text, Modifier.weight(1f)) { search = it }
+                        FilledTonalIconButton(
+                            onClick = {
                                 if (search.isNotBlank()) {
                                     working = true
                                     scope.launch {
@@ -1056,8 +1059,14 @@ private fun EditDetailsScreen(
                                         }
                                     }
                                 }
-                            }) { Text("Find") }
+                            },
+                            enabled = !working,
+                            modifier = Modifier.size(52.dp),
+                        ) {
+                            Icon(Icons.Filled.Search, contentDescription = "Find place")
                         }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = {
                                 val loc = repo.lastLocation
@@ -1070,119 +1079,139 @@ private fun EditDetailsScreen(
                                     fetch(context)
                                 }
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !working,
+                            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                            modifier = Modifier.weight(1f),
                         ) {
-                            Text("Use My Current Location")
+                            Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("My location", maxLines = 1)
                         }
                         Button(
                             onClick = { fetch(context) },
                             enabled = !working,
-                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                            modifier = Modifier.weight(1f),
                         ) {
-                            if (working) CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                            else Text("Fetch Address, Map & Weather")
+                            if (working) {
+                                CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Filled.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text("Fetch details", maxLines = 1)
                         }
-                        Field("Place title (City, State, Country)", title) { title = it }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Field("Country code (flag)", country, KeyboardType.Text, Modifier.weight(1f)) { country = it.take(2) }
-                            Field("Plus Code", plusCode, KeyboardType.Text, Modifier.weight(1.4f)) { plusCode = it }
-                        }
-                        Field("Short address", shortAddr) { shortAddr = it }
-                        Field("Full address", address, singleLine = false) { address = it }
-                        Field("Altitude (m)", altitude, KeyboardType.Decimal) { altitude = it }
                     }
+                    Text(
+                        "Fetch fills in the address, map and weather for these coordinates.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Field("Place title (City, State, Country)", title) { title = it }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Field("Country code (flag)", country, KeyboardType.Text, Modifier.weight(1f)) { country = it.take(2) }
+                        Field("Plus Code", plusCode, KeyboardType.Text, Modifier.weight(1.4f)) { plusCode = it }
+                    }
+                    Field("Short address", shortAddr) { shortAddr = it }
+                    Field("Full address", address, singleLine = false) { address = it }
+                    Field("Altitude (m)", altitude, KeyboardType.Decimal) { altitude = it }
                 }
 
-                // Date & Time Section Card
-                ElevatedCard(
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Date & Time", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedButton(onClick = { showDate = true }, modifier = Modifier.weight(1f)) {
-                                Text(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.getDefault()).format(date))
-                            }
-                            OutlinedButton(onClick = { showTime = true }, modifier = Modifier.weight(1f)) {
-                                Text(DateTimeFormatter.ofPattern("hh:mm a", Locale.getDefault()).format(clock))
-                            }
+                SectionCard(title = "Date & time", icon = Icons.Filled.Schedule) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(
+                            onClick = { showDate = true },
+                            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.CalendarToday, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.getDefault()).format(date), maxLines = 1)
                         }
-                        Field("Time zone offset (e.g. +05:30)", offset) { offset = it }
+                        OutlinedButton(
+                            onClick = { showTime = true },
+                            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.AccessTime, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(DateTimeFormatter.ofPattern("hh:mm a", Locale.getDefault()).format(clock), maxLines = 1)
+                        }
                     }
+                    Field("Time zone offset (e.g. +05:30)", offset) { offset = it }
                 }
 
-                // AI & OCR Card
-                ElevatedCard(
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("AI & Text Extraction", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(
-                                onClick = {
-                                    scope.launch {
-                                        try {
-                                            working = true
-                                            val bmp = PhotoComposer.decodeUri(context, item.uri)
-                                            val text = com.geostamp.camera.ai.VisionAnalyzer.recognizeText(bmp)
-                                            bmp.recycle()
-                                            working = false
-                                            if (!text.isNullOrBlank()) {
-                                                val firstLine = text.lines().firstOrNull { it.isNotBlank() } ?: text
-                                                settings.note = firstLine.take(80)
-                                                Toast.makeText(context, "OCR: $firstLine", Toast.LENGTH_LONG).show()
-                                            } else {
-                                                Toast.makeText(context, "No text found in photo", Toast.LENGTH_SHORT).show()
-                                            }
-                                        } catch (e: Exception) {
-                                            working = false
-                                            Toast.makeText(context, "OCR error: ${e.message}", Toast.LENGTH_SHORT).show()
+                SectionCard(title = "AI & text extraction", icon = Icons.Filled.AutoAwesome) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    try {
+                                        working = true
+                                        val bmp = PhotoComposer.decodeUri(context, item.uri)
+                                        val text = com.geostamp.camera.ai.VisionAnalyzer.recognizeText(bmp)
+                                        bmp.recycle()
+                                        working = false
+                                        if (!text.isNullOrBlank()) {
+                                            val firstLine = text.lines().firstOrNull { it.isNotBlank() } ?: text
+                                            settings.note = firstLine.take(80)
+                                            Toast.makeText(context, "OCR: $firstLine", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(context, "No text found in photo", Toast.LENGTH_SHORT).show()
                                         }
+                                    } catch (e: Exception) {
+                                        working = false
+                                        Toast.makeText(context, "OCR error: ${e.message}", Toast.LENGTH_SHORT).show()
                                     }
-                                },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Icon(Icons.Filled.TextFields, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Read sign")
-                            }
+                                }
+                            },
+                            enabled = !working,
+                            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.TextFields, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Read sign", maxLines = 1)
+                        }
 
-                            FilledTonalButton(
-                                onClick = {
-                                    scope.launch {
-                                        try {
-                                            working = true
-                                            val bmp = PhotoComposer.decodeUri(context, item.uri)
-                                            val caption = com.geostamp.camera.ai.VisionAnalyzer.autoCaption(bmp)
-                                            bmp.recycle()
-                                            working = false
-                                            if (!caption.isNullOrBlank()) {
-                                                settings.note = caption
-                                                Toast.makeText(context, "Caption: $caption", Toast.LENGTH_LONG).show()
-                                            } else {
-                                                Toast.makeText(context, "Could not identify scene", Toast.LENGTH_SHORT).show()
-                                            }
-                                        } catch (e: Exception) {
-                                            working = false
-                                            Toast.makeText(context, "Caption error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    try {
+                                        working = true
+                                        val bmp = PhotoComposer.decodeUri(context, item.uri)
+                                        val caption = com.geostamp.camera.ai.VisionAnalyzer.autoCaption(bmp)
+                                        bmp.recycle()
+                                        working = false
+                                        if (!caption.isNullOrBlank()) {
+                                            settings.note = caption
+                                            Toast.makeText(context, "Caption: $caption", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(context, "Could not identify scene", Toast.LENGTH_SHORT).show()
                                         }
+                                    } catch (e: Exception) {
+                                        working = false
+                                        Toast.makeText(context, "Caption error: ${e.message}", Toast.LENGTH_SHORT).show()
                                     }
-                                },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Auto caption")
-                            }
+                                }
+                            },
+                            enabled = !working,
+                            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Auto caption", maxLines = 1)
                         }
                     }
+                    Text(
+                        "The result goes into the stamp note.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
-                // Voice Note / Audio Memo Card
                 VoiceMemoSection(
                     photoName = item.name,
                     audioMemoPath = item.audioMemoPath,
@@ -1202,47 +1231,31 @@ private fun EditDetailsScreen(
                     }
                 )
 
-                // Weather Card
-                ElevatedCard(
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Weather", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Field("Temperature °C", temp, KeyboardType.Decimal, Modifier.weight(1f)) { temp = it }
-                            Field("Humidity %", humidity, KeyboardType.Number, Modifier.weight(1f)) { humidity = it }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Field("Wind km/h", wind, KeyboardType.Decimal, Modifier.weight(1f)) { wind = it }
-                            Field("Pressure hPa", pressure, KeyboardType.Decimal, Modifier.weight(1f)) { pressure = it }
-                        }
+                SectionCard(title = "Weather", icon = Icons.Filled.WbSunny) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Field("Temperature °C", temp, KeyboardType.Decimal, Modifier.weight(1f)) { temp = it }
+                        Field("Humidity %", humidity, KeyboardType.Number, Modifier.weight(1f)) { humidity = it }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Field("Wind km/h", wind, KeyboardType.Decimal, Modifier.weight(1f)) { wind = it }
+                        Field("Pressure hPa", pressure, KeyboardType.Decimal, Modifier.weight(1f)) { pressure = it }
                     }
                 }
 
-                // Sensors Card
-                ElevatedCard(
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Sensors", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Field("Compass °", compass, KeyboardType.Decimal, Modifier.weight(1f)) { compass = it }
-                            Field("Magnetic µT", magnetic, KeyboardType.Decimal, Modifier.weight(1f)) { magnetic = it }
-                            Field("Sound dB", sound, KeyboardType.Decimal, Modifier.weight(1f)) { sound = it }
-                        }
-                        Text(
-                            "Note, person name, phone, logo and numbering come from the Stamp Template settings.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                SectionCard(title = "Sensors", icon = Icons.Filled.Explore) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Field("Compass °", compass, KeyboardType.Decimal, Modifier.weight(1f)) { compass = it }
+                        Field("Magnetic µT", magnetic, KeyboardType.Decimal, Modifier.weight(1f)) { magnetic = it }
+                        Field("Sound dB", sound, KeyboardType.Decimal, Modifier.weight(1f)) { sound = it }
                     }
+                    Text(
+                        "Note, person name, phone, logo and numbering come from the Stamp Template settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
-                Spacer(Modifier.height(32.dp))
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
