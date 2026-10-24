@@ -1,7 +1,10 @@
 package com.geostamp.camera.ui
 
 import android.Manifest
-import android.content.res.Configuration
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.view.OrientationEventListener
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,14 +12,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -24,11 +25,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -40,7 +38,6 @@ import com.geostamp.camera.data.CameraSettings
 import com.geostamp.camera.data.GeofenceManager
 import com.geostamp.camera.data.StampDataRepository
 import com.geostamp.camera.data.StampSettings
-import com.geostamp.camera.ui.theme.CameraColors
 import kotlinx.coroutines.flow.SharedFlow
 
 @Composable
@@ -62,10 +59,8 @@ fun CameraScreen(
     val data by repo.data.collectAsState()
     val config = settings.snapshot()
 
-    val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE || configuration.screenWidthDp > configuration.screenHeightDp
-    // Height of the floating top bar in landscape, so overlays below it line up with its edge.
-    val landscapeTopInset = if (vm.showToolsBar) 104.dp else 60.dp
+    // The screen stays portrait; icons turn with the phone instead (see CameraRotation.kt).
+    LockPortrait()
 
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { vm.micGranted = it }
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -110,8 +105,9 @@ fun CameraScreen(
         onDispose { listener.disable() }
     }
 
-    LaunchedEffect(data, config, vm.tick, vm.mode, vm.frameLongShort, vm.selected, isLandscape) {
-        vm.renderStampPreview(config, isLandscape)
+    // Held sideways, photos come out landscape, so the stamp is drawn for a landscape frame.
+    LaunchedEffect(data, config, vm.tick, vm.mode, vm.frameLongShort, vm.selected, vm.landscape) {
+        vm.renderStampPreview(config, vm.landscape)
     }
 
     LaunchedEffect(volumeKeyTrigger) {
@@ -126,56 +122,8 @@ fun CameraScreen(
         }
     }
 
-    if (isLandscape) {
-        Row(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black),
-        ) {
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-            ) {
-                CameraViewfinder(
-                    vm, config, isLandscape = true, landscapeTopInset = landscapeTopInset,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxHeight()
-                        .aspectRatio(vm.nativeRatio),
-                )
-
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.TopCenter)
-                        .background(Brush.verticalGradient(listOf(CameraColors.ScrimStrong, Color.Transparent)))
-                        .statusBarsPadding(),
-                ) {
-                    CameraTopBar(vm, onOpenSettings, startVoiceNote)
-                }
-
-                GeofenceSection(vm, data.latitude, data.longitude, isLandscape = true, landscapeTopInset = landscapeTopInset)
-
-                if (vm.showProBar) {
-                    Box(
-                        Modifier
-                            .align(Alignment.TopCenter)
-                            .statusBarsPadding()
-                            .padding(top = landscapeTopInset),
-                    ) {
-                        ProInfoBar(vm)
-                    }
-                }
-
-                if (vm.openPanel != null) {
-                    Box(Modifier.align(Alignment.BottomCenter)) { OpenControlPanel(vm) }
-                }
-            }
-
-            LandscapeRightDeck(vm, onShutter)
-        }
-    } else {
+    val iconRotation = rememberIconRotation(vm.deviceTurn)
+    CompositionLocalProvider(LocalIconRotation provides iconRotation, LocalDeviceTurn provides vm.deviceTurn) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -186,31 +134,34 @@ fun CameraScreen(
                     .fillMaxWidth()
                     .statusBarsPadding(),
             ) {
-                CameraTopBar(vm, onOpenSettings, startVoiceNote)
+                CameraTopBar(vm, onOpenSettings)
             }
 
-            GeofenceSection(vm, data.latitude, data.longitude, isLandscape = false, landscapeTopInset = landscapeTopInset)
+            GeofenceSection(vm, data.latitude, data.longitude)
 
             if (vm.showProBar) ProInfoBar(vm)
 
+            // Viewfinder, with the quick-settings grid and the tools sheet opening over it.
             Box(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth(),
             ) {
-                CameraViewfinder(
-                    vm, config, isLandscape = false, landscapeTopInset = landscapeTopInset,
-                    modifier = Modifier
-                        .align(Alignment.Center)
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
                         .aspectRatio(1f / vm.nativeRatio),
-                )
-
-                if (vm.openPanel != null) {
-                    Box(Modifier.align(Alignment.BottomCenter)) { OpenControlPanel(vm) }
+                ) {
+                    CameraViewfinder(vm, config, modifier = Modifier.fillMaxSize())
+                    if (vm.openPanel != null) {
+                        Box(Modifier.align(Alignment.BottomCenter)) { OpenControlPanel(vm) }
+                    }
                 }
+
+                CameraSheets(vm, onOpenSettings, onOpenGallery, startVoiceNote)
             }
 
-            PortraitBottomDeck(vm, onShutter)
+            CameraBottomDeck(vm, onShutter)
         }
     }
 }
@@ -239,6 +190,23 @@ private fun OpenControlPanel(vm: CameraViewModel) {
         evRange = evRange,
         photoSizes = if (vm.cam.photoAspect.native16x9) sensor.photoSizes169 else sensor.photoSizes43,
     )
+}
+
+/** Keeps the activity in portrait while the camera is open, and gives rotation back to the sensor after. */
+@Composable
+private fun LockPortrait() {
+    val activity = LocalContext.current.findActivity() ?: return
+    DisposableEffect(activity) {
+        val before = activity.requestedOrientation
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose { activity.requestedOrientation = before }
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 /**

@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -16,7 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -27,15 +28,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BurstMode
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.SlowMotionVideo
-import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -44,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -62,35 +62,31 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.geostamp.camera.camera.CaptureMode
+import com.geostamp.camera.stamp.BackgroundSaves
 import com.geostamp.camera.ui.theme.CameraColors
-import java.util.Locale
 
-/** Portrait: lens/zoom and mode options, the mode switcher, then thumbnail · shutter · flip. */
+/**
+ * Below the viewfinder, like the stock camera: pro · lens/zoom · move stamp, a handle that pulls
+ * up the tools sheet, the mode strip, then thumbnail · shutter · flip. Only the icons turn when the phone does.
+ */
 @Composable
-internal fun PortraitBottomDeck(vm: CameraViewModel, onShutter: () -> Unit) {
+internal fun CameraBottomDeck(vm: CameraViewModel, onShutter: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(top = 8.dp, bottom = 12.dp),
+            .padding(bottom = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        ) {
-            LensOrZoomSelector(vm)
-            ModeOptionChips(vm)
-        }
+        // Kept off the viewfinder so they never cover the stamp preview.
+        ViewfinderControls(vm)
+        SheetHandle(vm)
 
         Row(
             Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .horizontalScroll(rememberScrollState())
+                .padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.Center,
         ) {
             ModeSwitcher(vm)
@@ -100,11 +96,11 @@ internal fun PortraitBottomDeck(vm: CameraViewModel, onShutter: () -> Unit) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp),
+                .padding(start = 28.dp, end = 28.dp, top = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                LastCaptureThumb(vm, 56.dp, showShareButton = true)
+                LastCaptureThumb(vm, 56.dp)
             }
             ShutterButton(vm, onShutter)
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
@@ -114,128 +110,58 @@ internal fun PortraitBottomDeck(vm: CameraViewModel, onShutter: () -> Unit) {
     }
 }
 
-/** Landscape: a column on the right with the mode switcher, shutter and thumbnail. */
+/** Tap or swipe up to open the tools sheet, swipe down to close it. */
 @Composable
-internal fun LandscapeRightDeck(vm: CameraViewModel, onShutter: () -> Unit) {
-    Column(
+private fun SheetHandle(vm: CameraViewModel) {
+    val open = vm.sheet == CameraSheet.MORE
+    Box(
         Modifier
-            .width(104.dp)
-            .fillMaxHeight()
-            .background(Color.Black)
-            .navigationBarsPadding()
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            ModeSwitcher(vm, horizontalPadding = 4.dp)
-        }
-
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            LensOrZoomSelector(vm, allowZoomPresets = false)
-            ShutterButton(vm, onShutter)
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                ModeOptionChips(vm)
+            .fillMaxWidth()
+            .height(20.dp)
+            .clickable { vm.toggleSheet(CameraSheet.MORE) }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { _, dragAmount ->
+                    if (dragAmount < -8f) vm.sheet = CameraSheet.MORE
+                    else if (dragAmount > 8f && vm.sheet == CameraSheet.MORE) vm.sheet = null
+                }
             }
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            LastCaptureThumb(vm, 44.dp, showShareButton = false)
-            if (vm.isRecording) SnapshotButton(vm, 44.dp) else FlipButton(vm, 44.dp)
-        }
+            .semantics { contentDescription = if (open) "Close tools" else "More tools" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(width = 36.dp, height = 4.dp)
+                .background(if (open) MaterialTheme.colorScheme.primary else CameraColors.OnScrimDisabled, CircleShape),
+        )
     }
 }
 
 @Composable
-private fun ModeSwitcher(vm: CameraViewModel, horizontalPadding: Dp = 12.dp) {
+private fun ModeSwitcher(vm: CameraViewModel) {
     CaptureMode.entries.forEach { m ->
         CameraModeLabel(
             text = m.displayName,
             active = vm.mode == m,
             enabled = !vm.busy && !vm.isRecording,
             onClick = { vm.selectMode(m) },
-            horizontalPadding = horizontalPadding,
+            horizontalPadding = 14.dp,
         )
-    }
-}
-
-@Composable
-private fun LensOrZoomSelector(vm: CameraViewModel, allowZoomPresets: Boolean = true) {
-    val lenses = vm.lenses
-    if (lenses.size > 1) {
-        CameraSegmented(
-            labels = lenses.map { it.shortLabel },
-            selected = vm.selected,
-            onSelect = { vm.selected = it },
-            enabled = !vm.busy && !vm.isRecording,
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-        )
-    } else if (allowZoomPresets && vm.zoomMax > 1.01f && vm.openPanel == null) {
-        val zoomMin = vm.zoomMin
-        val zoomMax = vm.zoomMax
-        val presets = (listOf(zoomMin) + listOf(1f, 2f, 3f, 5f, 10f))
-            .filter { it in zoomMin..zoomMax }
-            .distinctBy { (it * 10).toInt() }
-        CameraSegmented(
-            labels = presets.map { z -> if (z < 1f) String.format(Locale.US, "%.1f×", z) else "${z.toInt()}×" },
-            selected = presets.indexOfFirst { kotlin.math.abs(vm.zoomNow - it) < 0.05f },
-            onSelect = { vm.controller.setZoomRatio(presets[it]) },
-        )
-    }
-}
-
-/** Mode-specific cyclers (timer and burst, time-lapse interval, slow-mo speed). */
-@Composable
-private fun ModeOptionChips(vm: CameraViewModel) {
-    val cam = vm.cam
-    val isRecording = vm.isRecording
-    when (vm.mode) {
-        CaptureMode.PHOTO -> {
-            CameraChip(
-                text = if (cam.timerSeconds > 0) "${cam.timerSeconds}s" else "Off",
-                on = cam.timerSeconds > 0,
-                enabled = !isRecording && !vm.busy,
-                icon = Icons.Filled.Timer,
-                onClick = vm::cycleTimer,
-            )
-            CameraChip(
-                text = "${cam.burstCount}×",
-                on = cam.burstCount > 1,
-                enabled = !isRecording && !vm.busy,
-                icon = Icons.Filled.BurstMode,
-                onClick = vm::cycleBurst,
-            )
-        }
-        CaptureMode.TIMELAPSE -> {
-            CameraChip("Every ${cam.timelapseIntervalSec}s", true, !vm.isTimelapseActive, icon = Icons.Filled.Timer, onClick = vm::cycleTimelapseInterval)
-        }
-        CaptureMode.SLOW_MO -> {
-            CameraChip(cam.slowMoSpeed.label, true, !isRecording, icon = Icons.Filled.SlowMotionVideo, onClick = vm::cycleSlowMoSpeed)
-        }
-        CaptureMode.VIDEO -> Unit
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LastCaptureThumb(vm: CameraViewModel, size: Dp, showShareButton: Boolean) {
+private fun LastCaptureThumb(vm: CameraViewModel, size: Dp) {
     val context = LocalContext.current
     var shareMenu by remember { mutableStateOf(false) }
     val lastUri = vm.lastUri
     val lastMime = vm.lastMime
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val saving by BackgroundSaves.pending.collectAsState()
+    Box(contentAlignment = Alignment.Center) {
         Box(
             Modifier
                 .size(size)
+                .upright()
                 .clip(MaterialTheme.shapes.medium)
                 .border(1.5.dp, CameraColors.ScrimBorder, MaterialTheme.shapes.medium)
                 .background(CameraColors.Scrim)
@@ -259,13 +185,12 @@ private fun LastCaptureThumb(vm: CameraViewModel, size: Dp, showShareButton: Boo
                 Icon(Icons.Filled.PhotoLibrary, contentDescription = null, tint = CameraColors.OnScrimDisabled, modifier = Modifier.size(22.dp))
             }
         }
-        if (showShareButton && lastUri != null && !vm.isRecording && !vm.isTimelapseActive) {
-            CameraIconButton(
-                icon = Icons.Filled.Share,
-                contentDescription = "Share last capture",
-                onClick = { shareMenu = true },
-                size = 40.dp,
-                iconSize = 20.dp,
+        // Photos still being stamped and saved in the background.
+        if (saving > 0) {
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 2.5.dp,
+                modifier = Modifier.size(size + 10.dp),
             )
         }
         DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
@@ -297,6 +222,7 @@ private fun SnapshotButton(vm: CameraViewModel, size: Dp) {
         enabled = !vm.busy,
         onClick = vm::takeVideoSnapshot,
         size = size,
+        modifier = Modifier.upright(),
     )
 }
 
@@ -309,6 +235,7 @@ private fun FlipButton(vm: CameraViewModel, size: Dp) {
         onClick = vm::flipCamera,
         size = size,
         iconSize = 24.dp,
+        modifier = Modifier.upright(),
     )
 }
 

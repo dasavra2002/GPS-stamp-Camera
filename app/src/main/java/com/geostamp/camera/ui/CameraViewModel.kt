@@ -31,6 +31,7 @@ import com.geostamp.camera.VolumeKeyEvent
 import com.geostamp.camera.camera.BindResult
 import com.geostamp.camera.camera.CameraController
 import com.geostamp.camera.camera.CaptureMode
+import com.geostamp.camera.camera.CapturedPhoto
 import com.geostamp.camera.camera.LensCaps
 import com.geostamp.camera.camera.LensInfo
 import com.geostamp.camera.camera.ManualState
@@ -56,6 +57,7 @@ import com.geostamp.camera.data.VolumeButtonAction
 import com.geostamp.camera.data.WatermarkStyle
 import com.geostamp.camera.location.FixCheck
 import com.geostamp.camera.location.FixIssue
+import com.geostamp.camera.stamp.BackgroundSaves
 import com.geostamp.camera.stamp.FrameWatermarkRenderer
 import com.geostamp.camera.stamp.PhotoComposer
 import com.geostamp.camera.stamp.ShotParams
@@ -81,6 +83,8 @@ import java.util.Locale
 sealed interface CameraEvent {
     data class UploadToDrive(val uri: Uri, val mime: String) : CameraEvent
 }
+
+enum class CameraSheet { QUICK_SETTINGS, MORE }
 
 /**
  * State and actions of the camera screen: lens and mode selection, binding, capture (photo, burst,
@@ -138,12 +142,19 @@ class CameraViewModel(
         private set
     var overlay by mutableStateOf<Bitmap?>(null)
         private set
+    /** Width of the frame [overlay] was drawn for, so the preview can show it at its true size. */
+    var overlayFrameWidth by mutableIntStateOf(1080)
+        private set
+    /** Counts shots taken; the viewfinder blinks each time it changes. */
+    var shutterFlashes by mutableIntStateOf(0)
+        private set
     var error by mutableStateOf<String?>(null)
         private set
     var openPanel by mutableStateOf<Panel?>(null)
     var showProBar by mutableStateOf(false)
         private set
-    var showToolsBar by mutableStateOf(false)
+    /** The quick-settings grid (top chevron) or the more-tools sheet (pull-up handle), if open. */
+    var sheet by mutableStateOf<CameraSheet?>(null)
     var recording by mutableStateOf<Recording?>(null)
         private set
     var recSeconds by mutableLongStateOf(0L)
@@ -157,6 +168,9 @@ class CameraViewModel(
         private set
     /** The phone is held sideways (from the orientation sensor, not the screen layout). */
     var landscape by mutableStateOf(false)
+        private set
+    /** How far the phone is turned clockwise from upright: 0, 90, 180 or 270. The screen stays portrait; icons turn by this. */
+    var deviceTurn by mutableIntStateOf(0)
         private set
     var micGranted by mutableStateOf(
         ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -356,6 +370,12 @@ class CameraViewModel(
         }
         controller.targetRotation = rot
         landscape = rot == Surface.ROTATION_90 || rot == Surface.ROTATION_270
+        deviceTurn = when (rot) {
+            Surface.ROTATION_270 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_90 -> 270
+            else -> 0
+        }
     }
 
     // ---- Stamp preview -------------------------------------------------------------------------
@@ -368,9 +388,9 @@ class CameraViewModel(
         val video = mode.isVideo
         val data = repo.data.value
         val readout = controller.readout.value
+        val w = if (isLandscape) (1080 * longShort).toInt().coerceAtLeast(600) else 1080
+        val h = if (isLandscape) 1080 else (1080 * longShort).toInt().coerceAtLeast(600)
         val bmp = withContext(Dispatchers.Default) {
-            val w = if (isLandscape) (1080 * longShort).toInt().coerceAtLeast(600) else 1080
-            val h = if (isLandscape) 1080 else (1080 * longShort).toInt().coerceAtLeast(600)
             if (config.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
                 val shotParams = ShotParams(
                     focalMm = lens?.equivFocalMm ?: 26,
@@ -390,6 +410,7 @@ class CameraViewModel(
             }
         }
         overlay = bmp
+        overlayFrameWidth = w
         controller.setVideoStamp(if (video) bmp else null, config.size, config.position == StampPosition.TOP)
     }
 
@@ -407,6 +428,10 @@ class CameraViewModel(
     fun refreshLocation() {
         repo.refreshAll()
         toast("Refreshing location")
+    }
+
+    fun toggleSheet(s: CameraSheet) {
+        sheet = if (sheet == s) null else s
     }
 
     fun toggleProBar() {
@@ -545,35 +570,75 @@ class CameraViewModel(
     }
 
     /**
-     * [cameraJpeg] is the camera's own JPEG: its EXIF is carried over, and it's kept as the original if asked.
-     * [cameraRotation] is CameraX's rotation for an in-memory JPEG, null when the file's EXIF already has it.
+     * Everything about a shot that has to be read at the moment the shutter fires (stamp text,
+     * place, time, number), so a photo saved a moment later still shows when and where it was taken.
      */
-    private suspend fun saveStamped(bmp0: Bitmap, lens: LensInfo, cameraJpeg: ByteArray? = null, cameraRotation: Int? = null) {
-        val cfg = settings.snapshot()
-        val request = StampedCapture.Request(
-            frame = bmp0,
-            config = cfg,
-            data = stampDataFor(lens),
-            time = ZonedDateTime.now(),
-            lensLabel = lens.label,
-            shotParams = shotParamsFor(lens, cfg),
-            cropRatio = if (photoCrop) cam.photoAspect.ratio else null,
-            subFolder = cfg.siteName.ifBlank { null },
-            cameraJpeg = cameraJpeg,
-            cameraRotation = cameraRotation,
-            keepOriginal = cam.keepOriginal,
-        )
-        val result = withContext(Dispatchers.Default) { StampedCapture.save(app, request) }
-        settings.nextNumber = settings.nextNumber + 1
-        val uri = result.uri
-        lastUri = uri
-        lastMime = "image/jpeg"
-        lastThumb = result.thumbnail
-        if (uri == null) {
-            toast("Couldn't save photo")
-        } else if (cam.autoDriveUpload) {
-            _events.trySend(CameraEvent.UploadToDrive(uri, lastMime))
+    private inner class PendingShot(val lens: LensInfo) {
+        val config = settings.snapshot()
+        val data = stampDataFor(lens)
+        val time: ZonedDateTime = ZonedDateTime.now()
+        val shotParams = shotParamsFor(lens, config)
+        val cropRatio = if (photoCrop) cam.photoAspect.ratio else null
+        val keepOriginal = cam.keepOriginal
+        val autoUpload = cam.autoDriveUpload
+
+        init {
+            settings.nextNumber = settings.nextNumber + 1
         }
+    }
+
+    /**
+     * Queues the stamp-and-save for [shot] and returns at once, so the shutter is free again.
+     * [decode] builds the full-size frame on the save thread; [cameraJpeg] is the camera's own JPEG:
+     * its EXIF is carried over, and it's kept as the original if asked. [cameraRotation] is
+     * CameraX's rotation for an in-memory JPEG, null when the file's EXIF already has it.
+     */
+    private fun saveStampedLater(
+        shot: PendingShot,
+        cameraJpeg: ByteArray? = null,
+        cameraRotation: Int? = null,
+        cleanup: () -> Unit = {},
+        decode: suspend () -> Bitmap,
+    ) {
+        BackgroundSaves.enqueue {
+            try {
+                val request = StampedCapture.Request(
+                    frame = decode(),
+                    config = shot.config,
+                    data = shot.data,
+                    time = shot.time,
+                    lensLabel = shot.lens.label,
+                    shotParams = shot.shotParams,
+                    cropRatio = shot.cropRatio,
+                    subFolder = shot.config.siteName.ifBlank { null },
+                    cameraJpeg = cameraJpeg,
+                    cameraRotation = cameraRotation,
+                    keepOriginal = shot.keepOriginal,
+                )
+                val result = StampedCapture.save(app, request)
+                withContext(Dispatchers.Main) {
+                    lastUri = result.uri
+                    lastMime = "image/jpeg"
+                    lastThumb = result.thumbnail
+                    if (result.uri == null) {
+                        toast("Couldn't save photo")
+                    } else if (shot.autoUpload) {
+                        _events.trySend(CameraEvent.UploadToDrive(result.uri, "image/jpeg"))
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { toast("Couldn't save photo: ${e.message}") }
+            } finally {
+                cleanup()
+            }
+        }
+    }
+
+    /** Shows the shot straight away: a quick flash on the viewfinder and a thumbnail from the camera's JPEG. */
+    private suspend fun showCaptured(jpeg: ByteArray, rotationDegrees: Int) {
+        shutterFlashes++
+        withContext(Dispatchers.Default) { runCatching { BackgroundSaves.quickThumbnail(jpeg, rotationDegrees) }.getOrNull() }
+            ?.let { lastThumb = it }
     }
 
     private suspend fun capturePhoto(owner: LifecycleOwner, lens: LensInfo) {
@@ -581,6 +646,7 @@ class CameraViewModel(
         when (bind?.format ?: PhotoFormat.JPEG) {
             PhotoFormat.RAW -> {
                 val uri = controller.takeRawOnly(location)
+                shutterFlashes++
                 lastUri = uri
                 lastMime = "image/x-adobe-dng"
                 lastThumb = null
@@ -588,17 +654,22 @@ class CameraViewModel(
             }
             PhotoFormat.RAW_JPEG -> {
                 val tmp = File(app.cacheDir, "pair_${System.nanoTime()}.jpg")
-                try {
+                val jpeg = try {
                     controller.takeRawAndJpeg(tmp, location)
-                    val bmp = withContext(Dispatchers.Default) { PhotoComposer.decodeFile(app, tmp) }
-                    saveStamped(bmp, lens, withContext(Dispatchers.IO) { tmp.readBytes() })
-                } finally {
+                    withContext(Dispatchers.IO) { tmp.readBytes() }
+                } catch (e: Exception) {
                     tmp.delete()
+                    throw e
                 }
+                val shot = PendingShot(lens)
+                shutterFlashes++
+                saveStampedLater(shot, jpeg, cleanup = { tmp.delete() }) { PhotoComposer.decodeFile(app, tmp) }
             }
             PhotoFormat.JPEG -> {
                 val photo = controller.takePhoto()
-                var bmp = withContext(Dispatchers.Default) { PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees) }
+                val shot = PendingShot(lens)
+                showCaptured(photo.jpeg, photo.rotationDegrees)
+                var second: CapturedPhoto? = null
                 if (cam.pipMode && lenses.size > 1) {
                     val oppositeLens = lenses.firstOrNull { it.isFront != lens.isFront }
                     if (oppositeLens != null) {
@@ -606,35 +677,44 @@ class CameraViewModel(
                         val r = controller.bindPhoto(owner, oppositeLens, photoSpec)
                         if (r.ok) {
                             delay(250)
-                            try {
-                                val secondPhoto = controller.takePhoto()
-                                val secondBmp = withContext(Dispatchers.Default) { PhotoComposer.decodeCameraJpeg(secondPhoto.jpeg, secondPhoto.rotationDegrees) }
-                                val composite = withContext(Dispatchers.Default) { PhotoComposer.compositePip(bmp, secondBmp) }
-                                if (secondBmp !== composite && !secondBmp.isRecycled) secondBmp.recycle()
-                                if (bmp !== composite && !bmp.isRecycled) bmp.recycle()
-                                bmp = composite
-                            } catch (_: Exception) {}
+                            second = runCatching { controller.takePhoto() }.getOrNull()
                             controller.bindPhoto(owner, lens, photoSpec)
                         }
                     }
                 }
-                if (cam.documentMode) {
-                    val enhanced = withContext(Dispatchers.Default) { PhotoComposer.applyDocumentEnhancement(bmp) }
-                    if (enhanced !== bmp && !bmp.isRecycled) bmp.recycle()
-                    bmp = enhanced
+                val documentMode = cam.documentMode
+                saveStampedLater(shot, photo.jpeg, photo.rotationDegrees) {
+                    var bmp = PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees)
+                    second?.let { s ->
+                        runCatching {
+                            val secondBmp = PhotoComposer.decodeCameraJpeg(s.jpeg, s.rotationDegrees)
+                            val composite = PhotoComposer.compositePip(bmp, secondBmp)
+                            if (secondBmp !== composite && !secondBmp.isRecycled) secondBmp.recycle()
+                            if (bmp !== composite && !bmp.isRecycled) bmp.recycle()
+                            bmp = composite
+                        }
+                    }
+                    if (documentMode) {
+                        val enhanced = PhotoComposer.applyDocumentEnhancement(bmp)
+                        if (enhanced !== bmp && !bmp.isRecycled) bmp.recycle()
+                        bmp = enhanced
+                    }
+                    bmp
                 }
-                saveStamped(bmp, lens, photo.jpeg, photo.rotationDegrees)
             }
         }
     }
 
+    /** Busy only while the camera takes each shot; stamping and saving carry on in the background. */
     private suspend fun executeCapture(owner: LifecycleOwner, lens: LensInfo, count: Int) {
         busy = true
         try {
             for (i in 1..count) {
-                busyText = if (count > 1) "Burst $i/$count…" else "Saving…"
+                // No card over the viewfinder for normal shots: the shutter ring and blink say enough.
+                busyText = ""
+                BackgroundSaves.awaitRoom()
                 capturePhoto(owner, lens)
-                if (i < count) delay(300)
+                if (i < count) delay(150)
             }
         } catch (e: Exception) {
             toast("Capture failed: ${e.message}")
@@ -828,14 +908,13 @@ class CameraViewModel(
             try {
                 val count = if (cam.snapshotMode == SnapshotMode.LIVE_MOMENTS) 3 else 1
                 for (i in 1..count) {
+                    BackgroundSaves.awaitRoom()
                     val photo = controller.takePhoto()
-                    val bmp = withContext(Dispatchers.Default) {
-                        PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees)
-                    }
-                    saveStamped(bmp, lens)
+                    val shot = PendingShot(lens)
+                    showCaptured(photo.jpeg, photo.rotationDegrees)
+                    saveStampedLater(shot) { PhotoComposer.decodeCameraJpeg(photo.jpeg, photo.rotationDegrees) }
                     if (i < count) delay(200)
                 }
-                toast("Snapshot saved")
             } catch (e: Exception) {
                 toast("Snapshot failed: ${e.message}")
             } finally {
