@@ -6,6 +6,8 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.widget.Toast
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,13 +35,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -57,8 +62,6 @@ import com.geostamp.camera.ui.theme.CameraColors
 internal fun CameraViewfinder(
     vm: CameraViewModel,
     config: StampConfig,
-    isLandscape: Boolean,
-    landscapeTopInset: Dp,
     modifier: Modifier = Modifier,
 ) {
     val cam = vm.cam
@@ -66,7 +69,7 @@ internal fun CameraViewfinder(
     val focusPeakingBmp by controller.focusPeakingBitmap.collectAsState()
     val exposureVerificationBmp by controller.exposureVerificationBitmap.collectAsState()
     val histogram by controller.histogram.collectAsState()
-    val overlayTop = if (isLandscape) landscapeTopInset + 8.dp else 8.dp
+    val overlayTop = 8.dp
 
     BoxWithConstraints(modifier) {
         CameraPreview(controller, cam)
@@ -79,37 +82,58 @@ internal fun CameraViewfinder(
         }
 
         GridOverlay(cam.grid)
-        if (vm.photoCrop) FrameMask(if (isLandscape) cam.photoAspect.ratio else 1f / cam.photoAspect.ratio, solid = true)
-        if (cam.frameGuide != FrameGuide.OFF) {
-            val r = cam.frameGuide.ratio
-            FrameMask(if (isLandscape || vm.landscape) r else 1f / r, solid = false)
-        }
+        // The screen is always portrait and the sensor region is the same however the phone is
+        // held, so crops and guides are always drawn tall.
+        if (vm.photoCrop) FrameMask(1f / cam.photoAspect.ratio, solid = true)
+        if (cam.frameGuide != FrameGuide.OFF) FrameMask(1f / cam.frameGuide.ratio, solid = false)
         if (cam.documentMode) DocumentGuide()
 
-        // Stamp preview, inside the crop frame when a cropped photo format is chosen.
-        val frameRatio = if (isLandscape) vm.frameLongShort else (1f / vm.frameLongShort)
+        // Stamp preview, inside the crop frame when a cropped photo format is chosen. Held
+        // sideways, the photo is landscape: the stamp is drawn for that frame and turned with the phone.
         Box(
             Modifier
                 .align(Alignment.Center)
-                .aspectRatio(frameRatio),
+                .aspectRatio(1f / vm.frameLongShort),
         ) {
-            vm.overlay?.let { StampPreview(it, config, isLandscape, onTap = vm::cycleStampPosition) }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .quarterTurns(vm.deviceTurn),
+            ) {
+                vm.overlay?.let { StampPreview(it, vm.overlayFrameWidth, config, onTap = vm::cycleStampPosition) }
+            }
         }
 
-        if (cam.level) LevelIndicator(rememberRollDegrees(cam.level))
-        if (cam.histogram) {
+        if (cam.level) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .upright(),
+            ) {
+                LevelIndicator(rememberRollDegrees(cam.level))
+            }
+        }
+        // Only once the camera sends data, so it's never an empty box.
+        if (cam.histogram && histogram != null) {
             HistogramView(
                 histogram,
                 Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = if (isLandscape) 12.dp else 8.dp, top = overlayTop),
+                    .padding(start = 8.dp, top = overlayTop),
             )
         }
+        GpsStatusPill(
+            vm,
+            Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = overlayTop)
+                .uprightQuarter(),
+        )
         if (vm.isRecording) {
             Row(
                 Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = overlayTop),
+                    .padding(top = overlayTop + 40.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -126,7 +150,7 @@ internal fun CameraViewfinder(
                 container = CameraColors.ScrimStrong,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = overlayTop),
+                    .padding(top = overlayTop + 40.dp),
             )
         }
         val bind = vm.bind
@@ -141,8 +165,10 @@ internal fun CameraViewfinder(
             )
         }
 
+        ShutterBlink(vm.shutterFlashes)
         vm.timerCountdown?.let { TimerCountdown(it, onCancel = vm::cancelTimer) }
-        if (vm.busy) BusyCard(vm.busyText)
+        // Normal shots only show on the shutter; slower jobs (PiP, scans) say what they're doing.
+        if (vm.busy && vm.busyText.isNotBlank()) BusyCard(vm.busyText)
         vm.error?.let { ErrorCard(it) }
     }
 }
@@ -211,9 +237,12 @@ private fun DocumentGuide() {
     }
 }
 
-/** The rendered stamp; tapping it moves it bottom → top → center. */
+/**
+ * The rendered stamp at the size and place it will have on the photo; tapping it moves it
+ * bottom → top → center. [frameWidth] is the width of the frame [ov] was drawn for.
+ */
 @Composable
-private fun StampPreview(ov: Bitmap, config: StampConfig, isLandscape: Boolean, onTap: () -> Unit) {
+private fun StampPreview(ov: Bitmap, frameWidth: Int, config: StampConfig, onTap: () -> Unit) {
     if (config.watermarkStyle != WatermarkStyle.CLASSIC_GEO_BADGE) {
         Image(
             bitmap = ov.asImageBitmap(),
@@ -225,26 +254,45 @@ private fun StampPreview(ov: Bitmap, config: StampConfig, isLandscape: Boolean, 
         )
     } else {
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val frac = if (isLandscape) 0.38f else (ov.width / 1080f).coerceIn(0.65f, 0.98f)
-            val margin = maxHeight * 0.02f
+            // Same proportions as PhotoComposer.compose: centred, 2% margin.
+            val frac = (ov.width.toFloat() / frameWidth.coerceAtLeast(1)).coerceIn(0.1f, 1f)
+            val margin = maxWidth * 0.02f
             Image(
                 bitmap = ov.asImageBitmap(),
                 contentDescription = "Stamp preview",
                 contentScale = ContentScale.FillWidth,
                 modifier = Modifier
                     .align(
-                        if (isLandscape) Alignment.BottomStart
-                        else when (config.position) {
+                        when (config.position) {
                             StampPosition.BOTTOM -> Alignment.BottomCenter
                             StampPosition.TOP -> Alignment.TopCenter
                             StampPosition.CENTER -> Alignment.Center
                         }
                     )
-                    .clickable(onClick = onTap)
-                    .padding(horizontal = if (isLandscape) 12.dp else 8.dp, vertical = margin)
-                    .fillMaxWidth(frac),
+                    .padding(vertical = margin)
+                    .fillMaxWidth(frac)
+                    .clickable(onClick = onTap),
             )
         }
+    }
+}
+
+/** A quick dark blink over the viewfinder each time a shot is taken. */
+@Composable
+private fun ShutterBlink(shots: Int) {
+    val alpha = remember { Animatable(0f) }
+    LaunchedEffect(shots) {
+        if (shots == 0) return@LaunchedEffect
+        alpha.snapTo(0.75f)
+        alpha.animateTo(0f, tween(durationMillis = 220))
+    }
+    if (alpha.value > 0f) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer { this.alpha = alpha.value }
+                .background(Color.Black),
+        )
     }
 }
 
@@ -259,6 +307,7 @@ private fun TimerCountdown(seconds: Int, onCancel: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 "$seconds",
+                modifier = Modifier.upright(),
                 color = CameraColors.OnScrim,
                 style = MaterialTheme.typography.displayLarge,
                 fontSize = 112.sp,

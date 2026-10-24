@@ -3,12 +3,10 @@ package com.geostamp.camera.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -26,7 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.geostamp.camera.ui.theme.CameraColors
 
@@ -39,8 +36,6 @@ internal fun GeofenceSection(
     vm: CameraViewModel,
     currentLat: Double?,
     currentLon: Double?,
-    isLandscape: Boolean,
-    landscapeTopInset: Dp,
 ) {
     val geoMgr = vm.geofences
     val settings = vm.settings
@@ -63,34 +58,7 @@ internal fun GeofenceSection(
         } else null
     }
 
-    if (isLandscape) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(top = landscapeTopInset + 4.dp),
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            if (activeSitePair != null) {
-                val (site, dist) = activeSitePair
-                CameraPill(
-                    text = "${site.name} · ${dist.toInt()} m",
-                    icon = Icons.Filled.CheckCircle,
-                    iconTint = CameraColors.InsideFenceAccent,
-                    container = CameraColors.InsideFence,
-                )
-            } else if (nearestSitePair != null) {
-                val (site, dist) = nearestSitePair
-                CameraPill(
-                    text = "Outside ${site.name} · ${dist.toInt()} m",
-                    icon = Icons.Filled.Warning,
-                    iconTint = MaterialTheme.colorScheme.onErrorContainer,
-                    container = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                )
-            }
-        }
-    } else if (activeSitePair != null) {
+    if (activeSitePair != null) {
         val (site, dist) = activeSitePair
         GeofenceBanner(
             text = "In ${site.name} · ${dist.toInt()} m",

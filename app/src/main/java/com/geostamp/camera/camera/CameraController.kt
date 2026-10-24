@@ -624,9 +624,17 @@ class CameraController(private val context: Context) {
             return b.build()
         }
 
+        // Fast shutter for normal shots; the photo is re-encoded after stamping anyway, so the
+        // camera's slightly lower JPEG quality in this mode isn't visible. Extensions (night,
+        // portrait, HDR) do their own multi-frame processing and keep the quality mode.
+        val usesExtension = hdrLabel != null && outputFormat != ImageCapture.OUTPUT_FORMAT_JPEG_ULTRA_HDR
+
         fun attempt(sel: CameraSelector, fmt: Int, withAnalysis: Boolean, sized: Boolean): Boolean {
             val builder = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .setCaptureMode(
+                    if (usesExtension && sel === selector) ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
+                    else ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
+                )
                 .setTargetRotation(targetRotation)
                 .setFlashMode(flashMode)
                 .setOutputFormat(fmt)
