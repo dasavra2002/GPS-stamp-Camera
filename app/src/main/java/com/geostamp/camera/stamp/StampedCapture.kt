@@ -3,6 +3,7 @@ package com.geostamp.camera.stamp
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import com.geostamp.camera.data.FileNameValues
 import com.geostamp.camera.data.StampConfig
 import com.geostamp.camera.data.StampData
 import java.time.ZonedDateTime
@@ -24,7 +25,8 @@ object StampedCapture {
         val shotParams: ShotParams?,
         /** Long-side / short-side ratio to centre-crop to, or null to keep the full frame. */
         val cropRatio: Float?,
-        val prefix: String = "GeoStamp",
+        /** Replaces the user's file-name prefix (e.g. "Frame" for timelapse); null keeps it. */
+        val prefix: String? = null,
         val subFolder: String? = null,
         /** The camera's own JPEG: its EXIF is carried over, and it's saved as the original if [keepOriginal]. */
         val cameraJpeg: ByteArray? = null,
@@ -38,15 +40,18 @@ object StampedCapture {
     /** Blocking; call off the main thread. Recycles [Request.frame]. */
     fun save(context: Context, r: Request): Result {
         val source = r.data.locationSource ?: "none"
+        val nameValues = FileNameValues.from(r.data, r.config, r.time, r.config.number)
         val exif = CameraExif.fromShotParams(r.shotParams) + (r.cameraJpeg?.let { CameraExif.read(it) } ?: emptyMap())
         if (r.keepOriginal && r.cameraJpeg != null) {
-            PhotoSaver.saveOriginal(context, r.cameraJpeg, r.data, r.time, r.config.number, source, r.subFolder, r.cameraRotation)
+            PhotoSaver.saveOriginal(context, r.cameraJpeg, r.data, r.time, r.config.number, source, r.subFolder, r.cameraRotation,
+                naming = r.config.fileNaming, nameValues = nameValues)
         }
         val cropped = r.cropRatio?.let { PhotoComposer.cropToAspect(r.frame, it) } ?: r.frame
         val stamped = PhotoComposer.compose(cropped, r.config, r.data, r.time, r.lensLabel, r.shotParams)
         val uri = PhotoSaver.save(
             context, stamped, r.data, r.time, r.config.number, source,
             prefix = r.prefix, subFolder = r.subFolder, cameraExif = exif,
+            naming = r.config.fileNaming, nameValues = nameValues,
         )
         val thumb = Bitmap.createScaledBitmap(stamped, THUMB_W, (stamped.height * THUMB_W / stamped.width).coerceAtLeast(1), true)
         stamped.recycle()

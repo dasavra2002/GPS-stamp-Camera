@@ -298,6 +298,7 @@ fun SettingsScreen(
                 )
                 3 -> GeneralTabContent(
                     settings = settings,
+                    data = data,
                     cam = cam,
                 )
             }
@@ -921,6 +922,7 @@ private fun GpsAndSensorsTabContent(
 @Composable
 private fun GeneralTabContent(
     settings: StampSettings,
+    data: com.geostamp.camera.data.StampData,
     cam: CameraSettings?,
 ) {
     val context = LocalContext.current
@@ -941,6 +943,10 @@ private fun GeneralTabContent(
                     v.filter { it.isDigit() }.take(9).toIntOrNull()?.let { settings.nextNumber = it }
                 }
             }
+        }
+
+        item(key = "file_name_card") {
+            FileNameSettingsCard(settings = settings, data = data)
         }
 
         // Cloud & Automation Card
