@@ -28,7 +28,13 @@ import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.geostamp.camera.VolumeKeyEvent
+import androidx.camera.core.CameraState
+import androidx.camera.view.PreviewView
+import androidx.lifecycle.Lifecycle
 import com.geostamp.camera.camera.BindResult
+import com.geostamp.camera.camera.ModeWatchdog
+import com.geostamp.camera.camera.CameraLog
+import com.geostamp.camera.data.ExtensionModeType
 import com.geostamp.camera.camera.CameraController
 import com.geostamp.camera.camera.CaptureMode
 import com.geostamp.camera.camera.CapturedPhoto
@@ -338,6 +344,8 @@ class CameraViewModel(
     fun bindCamera(owner: LifecycleOwner): () -> Unit {
         val lens = currentLens
         var observer: Observer<ZoomState>? = null
+        modeWatchdog?.cancel()
+        modeWatchdog = null
         if (lens != null) {
             val r = if (mode.isVideo) controller.bindVideo(owner, lens, effectiveVideoSpec, targetMode = mode)
             else controller.bindPhoto(owner, lens, photoSpec)
@@ -356,10 +364,71 @@ class CameraViewModel(
                 c.cameraInfo.zoomState.observe(owner, o)
                 observer = o
             }
+            CameraLog.d("bind result ok=${r.ok} format=${r.format} hdr=${r.hdrLabel} special=${r.specialMode} notice=${r.notice}")
+            r.specialMode?.let { special -> if (r.ok) modeWatchdog = watchSpecialMode(owner, lens, special) }
         }
         val cam0 = controller.camera
-        return { observer?.let { o -> cam0?.cameraInfo?.zoomState?.removeObserver(o) } }
+        val watchdog = modeWatchdog
+        // Diagnostics: record camera and viewfinder state changes (Settings > Camera diagnostics).
+        val stateObserver = Observer<CameraState> { st ->
+            CameraLog.d("cameraState ${st.type}" + (st.error?.let { " error=${it.code} ${it.cause?.message ?: ""}" } ?: ""))
+        }
+        val streamObserver = Observer<PreviewView.StreamState> { st -> CameraLog.d("viewfinder $st") }
+        cam0?.cameraInfo?.cameraState?.observe(owner, stateObserver)
+        val streamLive = controller.previewStreamState
+        streamLive?.observe(owner, streamObserver)
+        return {
+            watchdog?.cancel()
+            observer?.let { o -> cam0?.cameraInfo?.zoomState?.removeObserver(o) }
+            cam0?.cameraInfo?.cameraState?.removeObserver(stateObserver)
+            streamLive?.removeObserver(streamObserver)
+        }
     }
+
+    private var modeWatchdog: Job? = null
+
+    /**
+     * RAW and HDR modes can bind fine and then fail when the camera session starts, leaving a
+     * black or frozen viewfinder (and a camera that won't switch lenses). Wait for the first
+     * preview frame; if it never comes, turn the mode off for this lens and go back to JPEG.
+     */
+    private fun watchSpecialMode(owner: LifecycleOwner, lens: LensInfo, special: com.geostamp.camera.camera.SpecialMode): Job =
+        viewModelScope.launch {
+            val start = android.os.SystemClock.elapsedRealtime()
+            while (true) {
+                delay(ModeWatchdog.POLL_MS)
+                // Only judge while the camera is on screen and not busy taking a shot.
+                if (!owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || busy) {
+                    CameraLog.d("watchdog stopped (screen paused or busy)")
+                    return@launch
+                }
+                val state = controller.camera?.cameraInfo?.cameraState?.value
+                val code = state?.error?.code
+                val verdict = ModeWatchdog.verdict(
+                    elapsedMs = android.os.SystemClock.elapsedRealtime() - start,
+                    streaming = controller.previewStreamState?.value == PreviewView.StreamState.STREAMING,
+                    cameraOpen = state?.type == CameraState.Type.OPEN,
+                    fatalError = code == CameraState.ERROR_STREAM_CONFIG || code == CameraState.ERROR_CAMERA_FATAL_ERROR,
+                )
+                if (verdict != ModeWatchdog.Verdict.WAIT) CameraLog.d("watchdog $special -> $verdict (state=${state?.type} error=$code stream=${controller.previewStreamState?.value})")
+                when (verdict) {
+                    ModeWatchdog.Verdict.WAIT -> continue
+                    ModeWatchdog.Verdict.OK -> return@launch
+                    ModeWatchdog.Verdict.FAILED -> {
+                        controller.markBroken(special)
+                        toast(ModeWatchdog.fallbackMessage(special, lens.shortLabel), long = true)
+                        // Changing the settings changes the spec, so the screen rebinds with plain JPEG.
+                        if (special.raw) cam.photoFormat = PhotoFormat.JPEG
+                        if (special.hdr) {
+                            cam.hdrPhoto = false
+                            cam.photoExtension = ExtensionModeType.NONE
+                        }
+                        caps = controller.capabilities(lens)
+                        return@launch
+                    }
+                }
+            }
+        }
 
     fun onDeviceRotation(orientation: Int) {
         val rot = when (orientation) {
@@ -713,10 +782,13 @@ class CameraViewModel(
                 // No card over the viewfinder for normal shots: the shutter ring and blink say enough.
                 busyText = ""
                 BackgroundSaves.awaitRoom()
+                CameraLog.d("capture start format=${bind?.format} hdr=${bind?.hdrLabel}")
                 capturePhoto(owner, lens)
+                CameraLog.d("capture done")
                 if (i < count) delay(150)
             }
         } catch (e: Exception) {
+            CameraLog.e("capture failed", e)
             toast("Capture failed: ${e.message}")
         } finally {
             busy = false

@@ -182,6 +182,7 @@ private fun CameraPreview(controller: CameraController, cam: CameraSettings) {
             PreviewView(ctx).apply {
                 scaleType = PreviewView.ScaleType.FILL_CENTER
                 controller.surfaceProvider = surfaceProvider
+                controller.previewStreamState = previewStreamState
                 val scaleDetector = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     override fun onScale(detector: ScaleGestureDetector): Boolean {
                         val zs = controller.camera?.cameraInfo?.zoomState?.value ?: return true

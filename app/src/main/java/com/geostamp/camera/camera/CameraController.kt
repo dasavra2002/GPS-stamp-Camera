@@ -73,6 +73,12 @@ import com.geostamp.camera.stamp.PhotoComposer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
+import androidx.camera.view.PreviewView
+import androidx.lifecycle.LiveData
 import java.io.File
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -155,7 +161,22 @@ data class BindResult(
     /** Native sensor-stream ratio of the preview (long / short). */
     val nativeRatio: Float = 4f / 3f,
     val notice: String? = null,
+    /**
+     * Set when a RAW / HDR / extension mode was bound. Such modes can bind without an error and
+     * still fail once the camera starts (black or frozen viewfinder), so the screen watches the
+     * preview and calls [CameraController.markBroken] with this key if it never starts.
+     */
+    val specialMode: SpecialMode? = null,
 )
+
+/** A photo mode that some phones advertise but can't actually run. */
+data class SpecialMode(val cameraId: String, val raw: Boolean, val hdr: Boolean) {
+    val label get() = when {
+        raw && hdr -> "RAW/HDR"
+        raw -> "RAW"
+        else -> "HDR"
+    }
+}
 
 class CapturedPhoto(val jpeg: ByteArray, val rotationDegrees: Int)
 
@@ -174,6 +195,21 @@ class CameraController(private val context: Context) {
         }
 
     private var preview: Preview? = null
+
+    /** The viewfinder's stream state (set by the screen); used to check a special mode really started. */
+    var previewStreamState: LiveData<PreviewView.StreamState>? = null
+
+    /** cameraId:RAW / cameraId:HDR modes that failed to start this session; hidden from [capabilities]. */
+    private val brokenModes = mutableSetOf<String>()
+
+    /** True while an extension (HDR, night, portrait, retouch) is bound; they reject manual capture options. */
+    private var extensionActive = false
+
+    fun markBroken(mode: SpecialMode) {
+        CameraLog.d("markBroken $mode")
+        if (mode.raw) brokenModes += "${mode.cameraId}:RAW"
+        if (mode.hdr) brokenModes += "${mode.cameraId}:HDR"
+    }
     private var imageCapture: ImageCapture? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var overlayEffect: OverlayEffect? = null
@@ -317,6 +353,7 @@ class CameraController(private val context: Context) {
     // ---------------- setup ----------------
 
     suspend fun init(): List<LensInfo> {
+        CameraLog.startFreezeMonitor()
         val p = provider ?: suspendCancellableCoroutine<ProcessCameraProvider> { cont ->
             val future = ProcessCameraProvider.getInstance(context)
             future.addListener({
@@ -457,14 +494,17 @@ class CameraController(private val context: Context) {
         val colors = VideoColor.entries.filter { it == VideoColor.SDR || dynamicRangeOf(it) in ranges }
         val qualities = runCatching { videoCaps?.getSupportedQualities(DynamicRange.SDR) }.getOrNull() ?: emptyList()
         val resolutions = VideoRes.entries.filter { qualityOf(it) in qualities }
+        CameraLog.d("caps lens=${lens.cameraId} formats=$formats hdrExt=$hdrExt night=$nightExt bokeh=$bokehExt broken=$brokenModes")
+        val rawOk = "${lens.cameraId}:RAW" !in brokenModes
+        val hdrOk = "${lens.cameraId}:HDR" !in brokenModes
         return LensCaps(
-            rawJpeg = ImageCapture.OUTPUT_FORMAT_RAW_JPEG in formats,
-            rawOnly = ImageCapture.OUTPUT_FORMAT_RAW in formats,
-            ultraHdrPhoto = ImageCapture.OUTPUT_FORMAT_JPEG_ULTRA_HDR in formats,
-            hdrExtension = hdrExt,
-            nightExtension = nightExt,
-            bokehExtension = bokehExt,
-            faceRetouchExtension = faceExt,
+            rawJpeg = rawOk && ImageCapture.OUTPUT_FORMAT_RAW_JPEG in formats,
+            rawOnly = rawOk && ImageCapture.OUTPUT_FORMAT_RAW in formats,
+            ultraHdrPhoto = hdrOk && ImageCapture.OUTPUT_FORMAT_JPEG_ULTRA_HDR in formats,
+            hdrExtension = hdrOk && hdrExt,
+            nightExtension = hdrOk && nightExt,
+            bokehExtension = hdrOk && bokehExt,
+            faceRetouchExtension = hdrOk && faceExt,
             videoColors = colors,
             videoResolutions = resolutions.ifEmpty { VideoRes.entries },
         )
@@ -508,13 +548,15 @@ class CameraController(private val context: Context) {
 
     // ---------------- binding ----------------
 
-    private fun newPreview(aspect: Int): Preview {
+    private fun newPreview(aspect: Int, readout: Boolean = true): Preview {
         val builder = Preview.Builder().setResolutionSelector(
             ResolutionSelector.Builder()
                 .setAspectRatioStrategy(AspectRatioStrategy(aspect, AspectRatioStrategy.FALLBACK_RULE_AUTO))
                 .build(),
         )
-        Camera2Interop.Extender(builder).setSessionCaptureCallback(captureCallback)
+        // Extension sessions are run by the phone maker's library; Camera2 interop options on them
+        // are unsupported on some phones, so the live ISO/shutter readout is skipped there.
+        if (readout) Camera2Interop.Extender(builder).setSessionCaptureCallback(captureCallback)
         val p = builder.build()
         p.setSurfaceProvider(surfaceProvider)
         preview = p
@@ -539,6 +581,7 @@ class CameraController(private val context: Context) {
     /** Binds the lens for photos with the requested format, size, aspect ratio and HDR. */
     fun bindPhoto(owner: LifecycleOwner, lens: LensInfo, spec: PhotoSpec): BindResult {
         val p = provider ?: return BindResult(false, CaptureMode.PHOTO)
+        CameraLog.d("bindPhoto lens=${lens.cameraId} (${lens.shortLabel}) spec=$spec")
         sensorInfo = readSensorInfo(lens)
         val caps = capabilities(lens)
         val notices = mutableListOf<String>()
@@ -612,10 +655,20 @@ class CameraController(private val context: Context) {
         val aspect = if (spec.aspect.native16x9) AspectRatio.RATIO_16_9 else AspectRatio.RATIO_4_3
         val nativeRatio = if (aspect == AspectRatio.RATIO_16_9) 16f / 9f else 4f / 3f
 
+        val special = isRaw || hdrLabel != null
+
         fun captureSelector(): ResolutionSelector {
             val b = ResolutionSelector.Builder()
                 .setAspectRatioStrategy(AspectRatioStrategy(aspect, AspectRatioStrategy.FALLBACK_RULE_AUTO))
-                .setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)
+            if (special) {
+                // RAW, Ultra HDR and extensions only run in the sensor's normal mode: the extra
+                // "high resolution" sizes (50/108/200 MP) need a sensor mode that can't be combined
+                // with them, and on many phones the session then fails after binding, leaving a
+                // black or frozen viewfinder. Use the largest normal size instead.
+                b.setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+                return b.build()
+            }
+            b.setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)
             val size = parseSize(spec.resolution)
             b.setResolutionStrategy(
                 if (size == null) ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY
@@ -640,17 +693,24 @@ class CameraController(private val context: Context) {
                 .setOutputFormat(fmt)
             if (sized) builder.setResolutionSelector(captureSelector())
             val capture = builder.build()
-            val useCases = mutableListOf(newPreview(aspect), capture)
+            val extension = usesExtension && sel === selector
+            val useCases = mutableListOf(newPreview(aspect, readout = !extension), capture)
             if (withAnalysis) useCases += newAnalysis(aspect)
+            CameraLog.d("attempt fmt=$fmt analysis=$withAnalysis sized=$sized extension=$extension special=$special")
+            val t0 = SystemClock.elapsedRealtime()
             return try {
                 p.unbindAll()
                 camera = p.bindToLifecycle(owner, sel, *useCases.toTypedArray())
                 imageCapture = capture
                 videoCapture = null
+                extensionActive = extension
+                CameraLog.d("bound in ${SystemClock.elapsedRealtime() - t0} ms; capture=${capture.resolutionInfo?.resolution} preview=${preview?.resolutionInfo?.resolution}")
                 true
             } catch (e: Exception) {
+                CameraLog.e("bind failed after ${SystemClock.elapsedRealtime() - t0} ms", e)
                 camera = null
                 imageCapture = null
+                extensionActive = false
                 false
             }
         }
@@ -661,16 +721,23 @@ class CameraController(private val context: Context) {
         _exposureVerificationBitmap.value = null
         isFocusPeakingEnabled = spec.focusPeaking
         isExposureVerificationEnabled = spec.exposureVerification
-        val needsAnalysis = spec.histogram || spec.focusPeaking || spec.exposureVerification
+        val wantsAnalysis = spec.histogram || spec.focusPeaking || spec.exposureVerification
+        // A third (analysis) stream next to RAW or an HDR/extension stream is outside what most
+        // phones guarantee, so histogram / peaking are paused in those modes.
+        val needsAnalysis = wantsAnalysis && !special
+        if (wantsAnalysis && special) notices += "Histogram and focus aids are paused in ${if (isRaw) "RAW" else "HDR"} mode"
+        val specialMode = if (special) SpecialMode(lens.cameraId, raw = isRaw, hdr = hdrLabel != null) else null
 
         val notice = notices.joinToString(". ").ifBlank { null }
         if (attempt(selector, outputFormat, needsAnalysis, true)) {
-            return BindResult(true, CaptureMode.PHOTO, hdrLabel, format, nativeRatio = nativeRatio, notice = notice)
+            return BindResult(true, CaptureMode.PHOTO, hdrLabel, format, nativeRatio = nativeRatio, notice = notice, specialMode = specialMode)
         }
         if (needsAnalysis && attempt(selector, outputFormat, false, true)) {
             return BindResult(true, CaptureMode.PHOTO, hdrLabel, format, nativeRatio = nativeRatio,
-                notice = listOfNotNull(notice, "Display parameters aren't available in this mode").joinToString(". "))
+                notice = listOfNotNull(notice, "Display parameters aren't available in this mode").joinToString(". "), specialMode = specialMode)
         }
+        if (specialMode != null) markBroken(specialMode)
+        CameraLog.d("special mode refused; falling back to plain JPEG")
         // Fall back to a plain JPEG camera if the special mode was refused.
         val ok = attempt(selectorFor(lens), ImageCapture.OUTPUT_FORMAT_JPEG, false, false)
         return BindResult(ok, CaptureMode.PHOTO, nativeRatio = nativeRatio,
@@ -796,6 +863,8 @@ class CameraController(private val context: Context) {
     /** Pushes the manual ISO / shutter / WB / focus settings to the camera. */
     fun applyManual(state: ManualState, fps: Int) {
         val cam = camera ?: return
+        // Extensions do their own exposure; manual ISO/shutter (AE off) can turn their preview black.
+        if (extensionActive) return
         try {
             Camera2CameraControl.from(cam.cameraControl)
                 .setCaptureRequestOptions(Manual.options(state, sensorInfo, _readout.value, fps))
@@ -817,6 +886,7 @@ class CameraController(private val context: Context) {
 
     fun unbind() {
         provider?.unbindAll()
+        extensionActive = false
         camera = null
         imageCapture = null
         videoCapture = null
@@ -855,6 +925,11 @@ class CameraController(private val context: Context) {
     /** Normal or HDR photo, delivered in memory for stamping. */
     suspend fun takePhoto(): CapturedPhoto {
         val capture = imageCapture ?: throw IllegalStateException("Camera is not ready")
+        return withTimeoutOrNull(CAPTURE_TIMEOUT_MS) { takePhotoNow(capture) }
+            ?: throw IllegalStateException("The camera didn't return the photo")
+    }
+
+    private suspend fun takePhotoNow(capture: ImageCapture): CapturedPhoto {
         return suspendCancellableCoroutine { cont ->
             capture.takePicture(captureExecutor, object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(image: ImageProxy) {
@@ -909,35 +984,50 @@ class CameraController(private val context: Context) {
         val jpegOptions = ImageCapture.OutputFileOptions.Builder(jpegFile).setMetadata(metadata).build()
         val rawOptions = rawOutputOptions(location)
 
-        return suspendCancellableCoroutine { cont ->
-            var rawUri: Uri? = null
-            var results = 0
-            var finished = false
-            capture.takePicture(rawOptions, jpegOptions, captureExecutor, object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    // Called once for the RAW file (saved to the gallery) and once for the JPEG (temp file).
-                    val uri = output.savedUri
+        val lock = Any()
+        var rawUri: Uri? = null
+        var results = 0
+        val first = CompletableDeferred<Unit>()
+        val both = CompletableDeferred<Unit>()
+        capture.takePicture(rawOptions, jpegOptions, captureExecutor, object : ImageCapture.OnImageSavedCallback {
+            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                // Called once for the RAW file (saved to the gallery) and once for the JPEG (temp file).
+                val uri = output.savedUri
+                synchronized(lock) {
                     if (output.imageFormat == ImageFormat.RAW_SENSOR || uri?.scheme == "content") rawUri = uri
                     results++
-                    if (results == 2 && !finished) {
-                        finished = true
-                        cont.resume(rawUri)
-                    }
+                    first.complete(Unit)
+                    if (results >= 2) both.complete(Unit)
                 }
+            }
 
-                override fun onError(exception: ImageCaptureException) {
-                    if (!finished) {
-                        finished = true
-                        cont.resumeWithException(exception)
-                    }
-                }
-            })
+            override fun onError(exception: ImageCaptureException) {
+                first.completeExceptionally(exception)
+                both.completeExceptionally(exception)
+            }
+        })
+        // Never hang the shutter: some phones report only one of the two files.
+        withTimeoutOrNull(CAPTURE_TIMEOUT_MS) { first.await() }
+            ?: throw IllegalStateException("The camera didn't return the RAW photo")
+        withTimeoutOrNull(SECOND_FILE_GRACE_MS) { both.await() }
+        if (!jpegFile.exists() || jpegFile.length() == 0L) {
+            throw IllegalStateException("The camera saved the RAW file but no JPEG")
         }
+        return synchronized(lock) { rawUri }
     }
 
     /** RAW-only capture: an untouched DNG (a stamp can't be burned into RAW sensor data). */
     suspend fun takeRawOnly(location: Location?): Uri? {
         val capture = imageCapture ?: throw IllegalStateException("Camera is not ready")
+        // The saved Uri may legitimately be null, so time out with an exception rather than null.
+        return try {
+            withTimeout(CAPTURE_TIMEOUT_MS) { takeRawOnlyNow(capture, location) }
+        } catch (e: TimeoutCancellationException) {
+            throw IllegalStateException("The camera didn't return the RAW photo")
+        }
+    }
+
+    private suspend fun takeRawOnlyNow(capture: ImageCapture, location: Location?): Uri? {
         return suspendCancellableCoroutine { cont ->
             capture.takePicture(rawOutputOptions(location), captureExecutor, object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
@@ -1022,5 +1112,12 @@ class CameraController(private val context: Context) {
         captureExecutor.shutdown()
         analysisExecutor.shutdown()
         overlayThread.quitSafely()
+    }
+
+    companion object {
+        /** Longest a single shot may take (night / HDR extensions can need several seconds). */
+        const val CAPTURE_TIMEOUT_MS = 20_000L
+        /** After the first file of a RAW+JPEG pair arrives, how long to wait for the second. */
+        const val SECOND_FILE_GRACE_MS = 4_000L
     }
 }

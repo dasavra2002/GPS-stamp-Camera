@@ -977,6 +977,36 @@ private fun GeneralTabContent(
             }
         }
 
+        // Camera diagnostics: lets the user send us what the camera did on their phone.
+        item(key = "camera_diagnostics_card") {
+            val ctx = LocalContext.current
+            SettingsGroupCard(title = "Camera diagnostics") {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        "If a camera mode misbehaves, reproduce it, then come back here and share the log.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            val log = com.geostamp.camera.camera.CameraLog.dump(versionName)
+                            val clip = ctx.getSystemService(android.content.ClipboardManager::class.java)
+                            clip?.setPrimaryClip(android.content.ClipData.newPlainText("GeoStamp camera log", log))
+                            android.widget.Toast.makeText(ctx, "Camera log copied", android.widget.Toast.LENGTH_SHORT).show()
+                        }) { Text("Copy log") }
+                        OutlinedButton(onClick = {
+                            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_TEXT, com.geostamp.camera.camera.CameraLog.dump(versionName))
+                            }
+                            ctx.startActivity(android.content.Intent.createChooser(send, "Share camera log"))
+                        }) { Text("Share log") }
+                    }
+                }
+            }
+        }
+
         // Attribution & Version Card
         item(key = "about_attribution_card") {
             SettingsGroupCard(title = "About & map attribution") {
