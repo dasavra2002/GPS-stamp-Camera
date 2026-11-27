@@ -206,6 +206,7 @@ class CameraController(private val context: Context) {
     private var extensionActive = false
 
     fun markBroken(mode: SpecialMode) {
+        CameraLog.d("markBroken $mode")
         if (mode.raw) brokenModes += "${mode.cameraId}:RAW"
         if (mode.hdr) brokenModes += "${mode.cameraId}:HDR"
     }
@@ -352,6 +353,7 @@ class CameraController(private val context: Context) {
     // ---------------- setup ----------------
 
     suspend fun init(): List<LensInfo> {
+        CameraLog.startFreezeMonitor()
         val p = provider ?: suspendCancellableCoroutine<ProcessCameraProvider> { cont ->
             val future = ProcessCameraProvider.getInstance(context)
             future.addListener({
@@ -492,6 +494,7 @@ class CameraController(private val context: Context) {
         val colors = VideoColor.entries.filter { it == VideoColor.SDR || dynamicRangeOf(it) in ranges }
         val qualities = runCatching { videoCaps?.getSupportedQualities(DynamicRange.SDR) }.getOrNull() ?: emptyList()
         val resolutions = VideoRes.entries.filter { qualityOf(it) in qualities }
+        CameraLog.d("caps lens=${lens.cameraId} formats=$formats hdrExt=$hdrExt night=$nightExt bokeh=$bokehExt broken=$brokenModes")
         val rawOk = "${lens.cameraId}:RAW" !in brokenModes
         val hdrOk = "${lens.cameraId}:HDR" !in brokenModes
         return LensCaps(
@@ -578,6 +581,7 @@ class CameraController(private val context: Context) {
     /** Binds the lens for photos with the requested format, size, aspect ratio and HDR. */
     fun bindPhoto(owner: LifecycleOwner, lens: LensInfo, spec: PhotoSpec): BindResult {
         val p = provider ?: return BindResult(false, CaptureMode.PHOTO)
+        CameraLog.d("bindPhoto lens=${lens.cameraId} (${lens.shortLabel}) spec=$spec")
         sensorInfo = readSensorInfo(lens)
         val caps = capabilities(lens)
         val notices = mutableListOf<String>()
@@ -692,14 +696,18 @@ class CameraController(private val context: Context) {
             val extension = usesExtension && sel === selector
             val useCases = mutableListOf(newPreview(aspect, readout = !extension), capture)
             if (withAnalysis) useCases += newAnalysis(aspect)
+            CameraLog.d("attempt fmt=$fmt analysis=$withAnalysis sized=$sized extension=$extension special=$special")
+            val t0 = SystemClock.elapsedRealtime()
             return try {
                 p.unbindAll()
                 camera = p.bindToLifecycle(owner, sel, *useCases.toTypedArray())
                 imageCapture = capture
                 videoCapture = null
                 extensionActive = extension
+                CameraLog.d("bound in ${SystemClock.elapsedRealtime() - t0} ms; capture=${capture.resolutionInfo?.resolution} preview=${preview?.resolutionInfo?.resolution}")
                 true
             } catch (e: Exception) {
+                CameraLog.e("bind failed after ${SystemClock.elapsedRealtime() - t0} ms", e)
                 camera = null
                 imageCapture = null
                 extensionActive = false
@@ -729,6 +737,7 @@ class CameraController(private val context: Context) {
                 notice = listOfNotNull(notice, "Display parameters aren't available in this mode").joinToString(". "), specialMode = specialMode)
         }
         if (specialMode != null) markBroken(specialMode)
+        CameraLog.d("special mode refused; falling back to plain JPEG")
         // Fall back to a plain JPEG camera if the special mode was refused.
         val ok = attempt(selectorFor(lens), ImageCapture.OUTPUT_FORMAT_JPEG, false, false)
         return BindResult(ok, CaptureMode.PHOTO, nativeRatio = nativeRatio,

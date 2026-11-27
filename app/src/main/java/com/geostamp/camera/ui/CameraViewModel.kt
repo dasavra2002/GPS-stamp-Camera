@@ -33,6 +33,7 @@ import androidx.camera.view.PreviewView
 import androidx.lifecycle.Lifecycle
 import com.geostamp.camera.camera.BindResult
 import com.geostamp.camera.camera.ModeWatchdog
+import com.geostamp.camera.camera.CameraLog
 import com.geostamp.camera.data.ExtensionModeType
 import com.geostamp.camera.camera.CameraController
 import com.geostamp.camera.camera.CaptureMode
@@ -363,13 +364,24 @@ class CameraViewModel(
                 c.cameraInfo.zoomState.observe(owner, o)
                 observer = o
             }
+            CameraLog.d("bind result ok=${r.ok} format=${r.format} hdr=${r.hdrLabel} special=${r.specialMode} notice=${r.notice}")
             r.specialMode?.let { special -> if (r.ok) modeWatchdog = watchSpecialMode(owner, lens, special) }
         }
         val cam0 = controller.camera
         val watchdog = modeWatchdog
+        // Diagnostics: record camera and viewfinder state changes (Settings > Camera diagnostics).
+        val stateObserver = Observer<CameraState> { st ->
+            CameraLog.d("cameraState ${st.type}" + (st.error?.let { " error=${it.code} ${it.cause?.message ?: ""}" } ?: ""))
+        }
+        val streamObserver = Observer<PreviewView.StreamState> { st -> CameraLog.d("viewfinder $st") }
+        cam0?.cameraInfo?.cameraState?.observe(owner, stateObserver)
+        val streamLive = controller.previewStreamState
+        streamLive?.observe(owner, streamObserver)
         return {
             watchdog?.cancel()
             observer?.let { o -> cam0?.cameraInfo?.zoomState?.removeObserver(o) }
+            cam0?.cameraInfo?.cameraState?.removeObserver(stateObserver)
+            streamLive?.removeObserver(streamObserver)
         }
     }
 
@@ -386,7 +398,10 @@ class CameraViewModel(
             while (true) {
                 delay(ModeWatchdog.POLL_MS)
                 // Only judge while the camera is on screen and not busy taking a shot.
-                if (!owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || busy) return@launch
+                if (!owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || busy) {
+                    CameraLog.d("watchdog stopped (screen paused or busy)")
+                    return@launch
+                }
                 val state = controller.camera?.cameraInfo?.cameraState?.value
                 val code = state?.error?.code
                 val verdict = ModeWatchdog.verdict(
@@ -395,6 +410,7 @@ class CameraViewModel(
                     cameraOpen = state?.type == CameraState.Type.OPEN,
                     fatalError = code == CameraState.ERROR_STREAM_CONFIG || code == CameraState.ERROR_CAMERA_FATAL_ERROR,
                 )
+                if (verdict != ModeWatchdog.Verdict.WAIT) CameraLog.d("watchdog $special -> $verdict (state=${state?.type} error=$code stream=${controller.previewStreamState?.value})")
                 when (verdict) {
                     ModeWatchdog.Verdict.WAIT -> continue
                     ModeWatchdog.Verdict.OK -> return@launch
@@ -766,10 +782,13 @@ class CameraViewModel(
                 // No card over the viewfinder for normal shots: the shutter ring and blink say enough.
                 busyText = ""
                 BackgroundSaves.awaitRoom()
+                CameraLog.d("capture start format=${bind?.format} hdr=${bind?.hdrLabel}")
                 capturePhoto(owner, lens)
+                CameraLog.d("capture done")
                 if (i < count) delay(150)
             }
         } catch (e: Exception) {
+            CameraLog.e("capture failed", e)
             toast("Capture failed: ${e.message}")
         } finally {
             busy = false
