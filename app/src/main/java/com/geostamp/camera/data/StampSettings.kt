@@ -180,6 +180,8 @@ data class StampConfig(
     val showExifParams: Boolean = true,
     val showGpsOnFrame: Boolean = true,
     val showAvatarOnFrame: Boolean = true,
+    /** How saved photos are named (see [FileNamer]). */
+    val fileNaming: FileNaming = FileNaming.DEFAULT,
 ) {
     fun has(f: StampField) = f in enabled
 }
@@ -494,6 +496,31 @@ class StampSettings(private val context: Context) {
         get() = showAvatarOnFrameState.value
         set(v) { showAvatarOnFrameState.value = v; prefs.edit().putBoolean("show_avatar_on_frame", v).apply() }
 
+    // ---- photo file name ----
+    private val fileNameFieldsState = mutableStateOf(
+        FileNaming.decodeFields(prefs.getString("file_name_fields", null)) ?: FileNaming.DEFAULT.fields
+    )
+    /** The fields that make up a photo's file name, in order. */
+    var fileNameFields: List<FileNameField>
+        get() = fileNameFieldsState.value
+        set(v) {
+            val list = v.distinct()
+            fileNameFieldsState.value = list
+            prefs.edit().putString("file_name_fields", FileNaming.encodeFields(list)).apply()
+        }
+
+    private val fileNamePrefixState = stringState("file_name_prefix", FileNaming.DEFAULT_PREFIX)
+    var fileNamePrefix: String
+        get() = fileNamePrefixState.value
+        set(v) { fileNamePrefixState.value = v; prefs.edit().putString("file_name_prefix", v).apply() }
+
+    private val fileNameSeparatorState = enumState("file_name_separator", FileNameSeparator.UNDERSCORE, FileNameSeparator.entries)
+    var fileNameSeparator: FileNameSeparator
+        get() = fileNameSeparatorState.value
+        set(v) = putEnum("file_name_separator", fileNameSeparatorState, v)
+
+    val fileNaming: FileNaming get() = FileNaming(fileNameFields, fileNamePrefix, fileNameSeparator)
+
     fun snapshot(): StampConfig = StampConfig(
         enabled = StampField.entries.filter { isEnabled(it) }.toSet(),
         note = note,
@@ -525,6 +552,7 @@ class StampSettings(private val context: Context) {
         showExifParams = showExifParams,
         showGpsOnFrame = showGpsOnFrame,
         showAvatarOnFrame = showAvatarOnFrame,
+        fileNaming = fileNaming,
     )
 
     // ---- helpers ----

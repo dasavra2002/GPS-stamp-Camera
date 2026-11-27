@@ -321,6 +321,8 @@ fun GalleryScreen(
                 PhotoSaver.save(
                     context, stamped, item.data, item.time, cfg.number, source,
                     prefix = "Stamped_$base", subFolder = cfg.siteName.ifBlank { null }, cameraExif = exif,
+                    naming = cfg.fileNaming,
+                    nameValues = com.geostamp.camera.data.FileNameValues.from(item.data, cfg, item.time, cfg.number),
                 ).also {
                     stamped.recycle()
                     if (bmp !== stamped && !bmp.isRecycled) bmp.recycle()

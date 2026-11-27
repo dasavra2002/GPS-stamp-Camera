@@ -16,6 +16,9 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.exifinterface.media.ExifInterface
+import com.geostamp.camera.data.FileNameValues
+import com.geostamp.camera.data.FileNamer
+import com.geostamp.camera.data.FileNaming
 import com.geostamp.camera.data.StampConfig
 import com.geostamp.camera.data.StampData
 import com.geostamp.camera.data.StampPosition
@@ -296,12 +299,14 @@ object PhotoSaver {
         time: ZonedDateTime,
         number: Int,
         locationSource: String,
-        prefix: String = "GeoStamp",
+        prefix: String? = null,
         subFolder: String? = null,
         cameraExif: Map<String, String> = emptyMap(),
+        naming: FileNaming = FileNaming.DEFAULT,
+        nameValues: FileNameValues = FileNameValues(time = time, number = number),
     ): Uri? {
-        val name = fileName(prefix)
-        val temp = File(context.cacheDir, name)
+        val name = FileNamer.fileName(naming, nameValues, prefix)
+        val temp = tempFile(context)
         temp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
         // The bitmap was turned upright before encoding, so no rotation is left to apply.
         return finish(context, temp, name, data, time, number, locationSource, subFolder, null, cameraExif, ExifInterface.ORIENTATION_NORMAL)
@@ -322,9 +327,12 @@ object PhotoSaver {
         locationSource: String,
         subFolder: String? = null,
         rotationDegrees: Int? = null,
+        naming: FileNaming = FileNaming.DEFAULT,
+        nameValues: FileNameValues = FileNameValues(time = time, number = number),
     ): Uri? {
-        val name = fileName("Original")
-        val temp = File(context.cacheDir, name)
+        // Same name as the stamped photo, so the pair is easy to match across the two folders.
+        val name = FileNamer.fileName(naming, nameValues)
+        val temp = tempFile(context)
         temp.writeBytes(jpeg)
         // The camera's EXIF is already in the file; only location, time and the proof are added.
         val orientation = rotationDegrees?.let {
@@ -338,8 +346,8 @@ object PhotoSaver {
         return finish(context, temp, name, data, time, number, locationSource, subFolder, ORIGINALS, emptyMap(), orientation)
     }
 
-    private fun fileName(prefix: String) =
-        prefix + "_" + DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS", Locale.US).format(ZonedDateTime.now()) + ".jpg"
+    /** A private scratch file; the user-facing name is only used for the saved copy. */
+    private fun tempFile(context: Context) = File(context.cacheDir, "save_" + java.util.UUID.randomUUID() + ".jpg")
 
     private fun finish(
         context: Context,
@@ -462,10 +470,13 @@ object PhotoSaver {
         val baseDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), FOLDER)
         val dir = if (folder != null) File(baseDir, folder) else baseDir
         if (!dir.exists()) dir.mkdirs()
-        val dest = File(dir, name)
-        temp.copyTo(dest, overwrite = true)
+        // Custom names can repeat (e.g. coordinates only); never overwrite an earlier photo.
+        var dest = File(dir, name)
+        var n = 2
+        while (dest.exists()) dest = File(dir, name.substringBeforeLast('.') + "_" + n++ + "." + name.substringAfterLast('.'))
+        temp.copyTo(dest, overwrite = false)
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.DISPLAY_NAME, dest.name)
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
             put(MediaStore.Images.Media.DATA, dest.absolutePath)
         }
